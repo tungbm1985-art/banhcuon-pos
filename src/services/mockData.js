@@ -39,9 +39,7 @@ export const INITIAL_CUSTOMERS = [
 ];
 
 export const INITIAL_STAFF = [
-  { id: 's-01', full_name: 'Chủ Quán (Admin)', username: 'admin', password: '123', role: 'admin' },
-  { id: 's-02', full_name: 'Quản Lý Ca', username: 'quanly', password: '123', role: 'manager' },
-  { id: 's-03', full_name: 'Nhân Viên 01', username: 'nhanvien', password: '123', role: 'staff' },
+  { id: 's-01', full_name: 'Chủ Quán (Admin)', username: 'admin', password: '111111', role: 'admin' },
 ];
 
 export const INITIAL_SETTINGS = {
@@ -75,6 +73,12 @@ export const INITIAL_SETTINGS = {
     earn_rate: 10000, // 10,000đ = 1 point
     redeem_rate: 100,  // 1 point = 100đ
     enabled: true,
+  },
+  password_recovery: {
+    recipient_email: '',      // Mail nhận mã khôi phục mật khẩu chủ quán
+    emailjs_service_id: '',   // EmailJS > Email Services > Service ID
+    emailjs_template_id: '',  // EmailJS > Email Templates > Template ID
+    emailjs_public_key: '',   // EmailJS > Account > Public Key
   },
 };
 

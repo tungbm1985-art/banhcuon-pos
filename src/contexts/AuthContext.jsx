@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { authenticateStaff, getStaffList } from '../services/db';
 
 const AuthContext = createContext();
@@ -29,18 +29,18 @@ export function AuthProvider({ children }) {
   const [staffList, setStaffList] = useState([]);
   const [isSwitchingUser, setIsSwitchingUser] = useState(false);
 
-  useEffect(() => {
-    loadStaff();
-  }, []);
-
-  async function loadStaff() {
+  const loadStaff = useCallback(async () => {
     try {
       const list = await getStaffList();
       setStaffList(list);
     } catch (e) {
       console.error('Error loading staff list:', e);
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    loadStaff();
+  }, [loadStaff]);
 
   const login = async (username, password) => {
     const user = await authenticateStaff(username, password);

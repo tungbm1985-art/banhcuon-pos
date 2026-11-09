@@ -27,6 +27,7 @@ import {
   RotateCcw,
   ExternalLink,
   Wifi,
+  Mail,
 } from 'lucide-react';
 
 const COMMON_BANKS = [
@@ -55,6 +56,8 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
   const [printConfig, setPrintConfig] = useState(settings.print_config || {});
   // Loyalty config state
   const [loyaltyConfig, setLoyaltyConfig] = useState(settings.loyalty_config || {});
+  // Password recovery (EmailJS) state
+  const [recoveryConfig, setRecoveryConfig] = useState(settings.password_recovery || {});
 
   // Supabase credentials
   const initialCreds = getSupabaseCredentials() || { url: '', key: '' };
@@ -76,6 +79,7 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
       await updateSetting('vietqr_config', vietqrConfig);
       await updateSetting('print_config', printConfig);
       await updateSetting('loyalty_config', loyaltyConfig);
+      await updateSetting('password_recovery', recoveryConfig);
       setSaveSuccessMsg('Đã lưu toàn bộ cài đặt thành công!');
       setTimeout(() => setSaveSuccessMsg(''), 3000);
     } catch (err) {
@@ -753,6 +757,96 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
             </button>
           </div>
         </div>
+      </div>
+
+      {/* 6. KHÔI PHỤC MẬT KHẨU CHỦ QUÁN QUA EMAIL */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-2xs space-y-4">
+        <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+          <Mail className="w-5 h-5 text-indigo-600" />
+          <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide">
+            6. Khôi Phục Mật Khẩu Chủ Quán (Qua Email)
+          </h3>
+        </div>
+
+        <p className="text-xs text-slate-500 leading-relaxed">
+          Dùng khi <strong>Chủ quán quên mật khẩu</strong>. Khi bấm &quot;Quên mật khẩu?&quot; ở màn hình đăng nhập,
+          app sẽ gửi một mã xác nhận 6 số về email bên dưới. Cần tạo tài khoản miễn phí tại{' '}
+          <a
+            href="https://www.emailjs.com/"
+            target="_blank"
+            rel="noreferrer"
+            className="text-indigo-600 font-bold underline inline-flex items-center gap-0.5"
+          >
+            emailjs.com <ExternalLink className="w-3 h-3" />
+          </a>{' '}
+          rồi lấy 3 thông số: Service ID, Template ID, Public Key.
+          Trong template EmailJS nhớ dùng các biến: <code className="font-mono text-[11px]">{'{{to_email}}'}</code>,{' '}
+          <code className="font-mono text-[11px]">{'{{reset_code}}'}</code>,{' '}
+          <code className="font-mono text-[11px]">{'{{store_name}}'}</code>.
+        </p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="sm:col-span-2">
+            <label className="text-xs font-bold text-slate-700 block mb-1">
+              Email nhận mã khôi phục (email của chủ quán)
+            </label>
+            <input
+              type="email"
+              placeholder="chuguan@gmail.com"
+              value={recoveryConfig.recipient_email || ''}
+              onChange={(e) => setRecoveryConfig({ ...recoveryConfig, recipient_email: e.target.value })}
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-hidden focus:border-indigo-500"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-slate-700 block mb-1">EmailJS Service ID</label>
+            <input
+              type="text"
+              placeholder="service_xxxxxxx"
+              value={recoveryConfig.emailjs_service_id || ''}
+              onChange={(e) => setRecoveryConfig({ ...recoveryConfig, emailjs_service_id: e.target.value })}
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-mono focus:outline-hidden focus:border-indigo-500"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-slate-700 block mb-1">EmailJS Template ID</label>
+            <input
+              type="text"
+              placeholder="template_xxxxxxx"
+              value={recoveryConfig.emailjs_template_id || ''}
+              onChange={(e) => setRecoveryConfig({ ...recoveryConfig, emailjs_template_id: e.target.value })}
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-mono focus:outline-hidden focus:border-indigo-500"
+            />
+          </div>
+
+          <div className="sm:col-span-2">
+            <label className="text-xs font-bold text-slate-700 block mb-1">EmailJS Public Key</label>
+            <input
+              type="text"
+              placeholder="AbCdEfGhIjKlMnOp"
+              value={recoveryConfig.emailjs_public_key || ''}
+              onChange={(e) => setRecoveryConfig({ ...recoveryConfig, emailjs_public_key: e.target.value })}
+              className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm font-mono focus:outline-hidden focus:border-indigo-500"
+            />
+          </div>
+        </div>
+
+        {recoveryConfig.recipient_email &&
+        recoveryConfig.emailjs_service_id &&
+        recoveryConfig.emailjs_template_id &&
+        recoveryConfig.emailjs_public_key ? (
+          <div className="p-3 rounded-xl border text-xs font-bold flex items-center gap-2 bg-emerald-50 border-emerald-300 text-emerald-800">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>Đã cấu hình đủ. Chức năng &quot;Quên mật khẩu&quot; đã sẵn sàng hoạt động.</span>
+          </div>
+        ) : (
+          <div className="p-3 rounded-xl border text-xs font-bold flex items-center gap-2 bg-amber-50 border-amber-300 text-amber-800">
+            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>Cần điền đủ 4 ô trên rồi bấm &quot;Lưu Toàn Bộ Cài Đặt&quot; để bật chức năng quên mật khẩu.</span>
+          </div>
+        )}
       </div>
     </div>
   );

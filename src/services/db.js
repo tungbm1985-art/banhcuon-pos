@@ -1185,6 +1185,9 @@ export async function authenticateStaff(username, password) {
       const { password: _p, ...safe } = data;
       return safe;
     }
+    // Supabase là nguồn xác thực chính: KHÔNG rơi về localStorage,
+    // tránh trường hợp mật khẩu cũ còn lưu trên máy vẫn đăng nhập được.
+    return null;
   }
 
   const list = getLocalItem(STORAGE_KEYS.STAFF, INITIAL_STAFF);
@@ -1194,6 +1197,68 @@ export async function authenticateStaff(username, password) {
     return safe;
   }
   return null;
+}
+
+// ==============================================================================
+// 7B. KHÔI PHỤC MẬT KHẨU CHỦ QUÁN
+// ==============================================================================
+
+export async function getAdminAccount() {
+  const supabase = getSupabase();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('staff')
+      .select('id, full_name, username, role')
+      .eq('role', 'admin')
+      .limit(1)
+      .maybeSingle();
+    if (!error) return data || null;
+  }
+
+  const list = getLocalItem(STORAGE_KEYS.STAFF, INITIAL_STAFF);
+  const admin = list.find((s) => s.role === 'admin');
+  if (!admin) return null;
+  const { password: _p, ...safe } = admin;
+  return safe;
+}
+
+export async function createPasswordResetCode(code, ttlMinutes = 10) {
+  const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000).toISOString();
+  await updateSystemSetting('password_reset', { code, expires_at: expiresAt });
+  return expiresAt;
+}
+
+export async function getPasswordResetRequest() {
+  const settings = await getSystemSettings();
+  return settings.password_reset || null;
+}
+
+export async function clearPasswordResetCode() {
+  await updateSystemSetting('password_reset', null);
+}
+
+// Gửi mã khôi phục qua EmailJS (REST API, không cần thư viện ngoài)
+export async function sendResetCodeEmail(config, { code, storeName }) {
+  const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      service_id: config.emailjs_service_id,
+      template_id: config.emailjs_template_id,
+      user_id: config.emailjs_public_key,
+      template_params: {
+        to_email: config.recipient_email,
+        reset_code: code,
+        store_name: storeName,
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    const detail = await res.text();
+    throw new Error(detail || `EmailJS trả về mã lỗi ${res.status}`);
+  }
+  return true;
 }
 
 // ==============================================================================

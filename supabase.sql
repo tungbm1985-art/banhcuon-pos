@@ -296,14 +296,13 @@ INSERT INTO system_settings (key, value) VALUES
 ('store_info', '{"name": "BÁNH CUỐN THANH HÓA", "address": "128 Nguyễn Trãi, TP. Thanh Hóa", "phone": "0988.123.456", "slogan": "Đặc sản gia truyền - Tráng tay nóng hổi", "footer_note": "Cảm ơn & Hẹn gặp lại quý khách!"}'::jsonb),
 ('vietqr_config', '{"bank_id": "MB", "account_no": "0988123456", "account_name": "NGUYEN VAN A", "template": "compact2"}'::jsonb),
 ('print_config', '{"paper_size": "58mm", "auto_print_bill": true, "auto_print_kot": false, "show_qr_on_bill": true, "show_loyalty_on_bill": true}'::jsonb),
-('loyalty_config', '{"earn_rate": 10000, "redeem_rate": 100, "enabled": true}'::jsonb)
+('loyalty_config', '{"earn_rate": 10000, "redeem_rate": 100, "enabled": true}'::jsonb),
+('password_recovery', '{"recipient_email": "", "emailjs_service_id": "", "emailjs_template_id": "", "emailjs_public_key": ""}'::jsonb)
 ON CONFLICT (key) DO NOTHING;
 
 -- Staff
 INSERT INTO staff (full_name, username, password, role) VALUES
-('Chủ Quán (Admin)', 'admin', 'admin123', 'admin'),
-('Quản Lý Ca', 'quanly', '123456', 'manager'),
-('Nhân Viên 01', 'nhanvien', '123456', 'staff')
+('Chủ Quán (Admin)', 'admin', '111111', 'admin')
 ON CONFLICT (username) DO NOTHING;
 
 -- Finance: Ví / Khoản mục thu-chi (dùng ID cố định để giao dịch tham chiếu được)
