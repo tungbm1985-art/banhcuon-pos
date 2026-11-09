@@ -52,11 +52,6 @@ export function AuthProvider({ children }) {
     return user;
   };
 
-  const switchAccount = (user) => {
-    setCurrentUser(user);
-    localStorage.setItem('banhcuon_current_user', JSON.stringify(user));
-  };
-
   const logout = () => {
     localStorage.removeItem('banhcuon_current_user');
     // Fallback to staff or prompt login
@@ -81,7 +76,6 @@ export function AuthProvider({ children }) {
         currentUser,
         login,
         logout,
-        switchAccount,
         hasRole,
         isAdmin,
         isManager,

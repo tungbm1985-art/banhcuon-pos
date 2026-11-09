@@ -5,7 +5,7 @@ import { isUsingSupabase } from '../../services/db';
 import { LogOut, RefreshCw, Menu, X, History, BarChart3, Receipt, UserCog, Settings, Wallet } from 'lucide-react';
 
 export default function Header({ onRefresh, activeTab, onSelectTab }) {
-  const { currentUser, staffList, switchAccount, logout, isAdmin, isManager } = useAuth();
+  const { currentUser, logout, isAdmin, isManager } = useAuth();
   const { settings } = useSettings();
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -110,7 +110,7 @@ export default function Header({ onRefresh, activeTab, onSelectTab }) {
               />
             )}
 
-            {/* Dropdown for fast shift switcher / role preview */}
+            {/* Account details and sign out */}
             {showUserDropdown && (
               <div
                 className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-slate-200 py-2 z-50 animate-in fade-in slide-in-from-top-2"
@@ -122,37 +122,6 @@ export default function Header({ onRefresh, activeTab, onSelectTab }) {
                   <span className={`inline-block mt-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border ${currentBadge?.bg}`}>
                     {currentBadge?.label}
                   </span>
-                </div>
-
-                <div className="px-3 py-2">
-                  <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-                    Đổi ca làm việc nhanh
-                  </p>
-                  <div className="space-y-1">
-                    {staffList.map((s) => {
-                      const isCurrent = currentUser?.id === s.id;
-                      const badge = getRoleBadge(s.role);
-                      return (
-                        <button
-                          key={s.id}
-                          onClick={() => {
-                            switchAccount(s);
-                            setShowUserDropdown(false);
-                          }}
-                          className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium text-left transition-colors ${
-                            isCurrent
-                              ? 'bg-red-50 text-red-700 font-bold'
-                              : 'text-slate-700 hover:bg-slate-100'
-                          }`}
-                        >
-                          <span>{s.full_name}</span>
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded border ${badge.bg}`}>
-                            {badge.label}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
                 </div>
 
                 <div className="pt-2 border-t border-slate-100 px-3 pb-1">
