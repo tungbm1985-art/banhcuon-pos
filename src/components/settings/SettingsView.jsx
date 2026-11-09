@@ -6,7 +6,14 @@ import {
   testSupabaseConnection,
   getSupabaseCredentials,
 } from '../../services/supabaseClient';
-import { seedInitialDataToSupabase, resetLocalData, isUsingSupabase } from '../../services/db';
+import {
+  seedInitialDataToSupabase,
+  resetLocalData,
+  isUsingSupabase,
+  isPrintQueueAvailable,
+  createPrintJob,
+  getPrintJob,
+} from '../../services/db';
 import { getVietQRUrl, formatVND } from '../../utils/formatters';
 import {
   Store,
@@ -130,26 +137,60 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
     }
   };
 
-  // Test LAN printer connection via the local print server
+  // Test LAN printer connection.
+  // - Có Supabase: gửi lệnh test qua hàng đợi (in được từ điện thoại qua WiFi/4G)
+  // - Không có Supabase: gọi thẳng Print Server cục bộ (chỉ đúng khi mở app trên máy tính tiền)
   const handleTestPrinter = async () => {
     if (!printConfig.printer_ip) {
       alert('Vui lòng nhập địa chỉ IP máy in!');
       return;
     }
+    const ip = printConfig.printer_ip;
+    const port = Number(printConfig.printer_port) || 9100;
+
     setIsTestingPrinter(true);
     setPrinterTestResult(null);
     try {
+      if (isPrintQueueAvailable()) {
+        const job = await createPrintJob({ jobType: 'test', printerIp: ip, printerPort: port, payload: {} });
+        if (job) {
+          // Chờ máy tính tiền xử lý (tối đa ~12 giây)
+          for (let i = 0; i < 12; i += 1) {
+            await new Promise((r) => setTimeout(r, 1000));
+            const row = await getPrintJob(job.id);
+            if (row?.status === 'done') {
+              setPrinterTestResult({
+                success: true,
+                message: `Kết nối thành công đến ${ip}:${port} (qua hàng đợi máy tính tiền)`,
+              });
+              return;
+            }
+            if (row?.status === 'error') {
+              setPrinterTestResult({
+                success: false,
+                error: `Không kết nối được máy in: ${row.error_message || 'Không xác định'}`,
+              });
+              return;
+            }
+          }
+          setPrinterTestResult({
+            success: false,
+            error:
+              'Máy tính tiền chưa phản hồi. Kiểm tra máy tính tiền đã chạy "npm run print-server" chưa.',
+          });
+          return;
+        }
+      }
+
+      // Dự phòng: gọi Print Server cục bộ
       const res = await fetch('http://localhost:3001/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ip: printConfig.printer_ip,
-          port: Number(printConfig.printer_port) || 9100,
-        }),
+        body: JSON.stringify({ ip, port }),
       });
       const data = await res.json();
       setPrinterTestResult(data);
-    } catch (err) {
+    } catch {
       setPrinterTestResult({
         success: false,
         error: 'Không kết nối được với Print Server. Đảm bảo đã chạy lệnh "npm run print-server".',
@@ -450,7 +491,8 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
 
         <p className="text-xs text-slate-500 -mt-1">
           In trực tiếp đến máy in nhiệt qua địa chỉ IP (không cần cửa sổ in của trình duyệt). Cần chạy
-          lệnh <code className="bg-slate-100 px-1 rounded">npm run print-server</code> trên máy tính.
+          lệnh <code className="bg-slate-100 px-1 rounded">npm run print-server</code> trên máy tính tiền.
+          Khi đã kết nối Supabase, lệnh in được gửi qua hàng đợi nên in được từ điện thoại dùng WiFi quán hoặc 4G.
         </p>
 
         {/* Enable toggle */}

@@ -40,6 +40,8 @@ import {
   cancelOrder,
   subscribeToTables,
   subscribeToOrders,
+  createPrintJob,
+  isPrintQueueAvailable,
 } from './services/db';
 
 function MainApp() {
@@ -139,8 +141,29 @@ function MainApp() {
     !!settings?.print_config?.printer_ip;
 
   const printViaLAN = async (order, type) => {
-    const ip = settings.print_config.printer_ip;
-    const port = settings.print_config.printer_port || 9100;
+    const cfg = settings.print_config || {};
+    const ip = cfg.printer_ip;
+    const port = cfg.printer_port || 9100;
+
+    // 1) Ưu tiên: đẩy lệnh in vào hàng đợi trên Supabase.
+    //    Vì là HTTPS nên chạy được từ mọi mạng (WiFi quán hoặc 4G),
+    //    không bị trình duyệt chặn như gọi thẳng HTTP vào máy in LAN.
+    if (isPrintQueueAvailable()) {
+      const job = await createPrintJob({
+        jobType: type,
+        printerIp: ip,
+        printerPort: port,
+        payload: {
+          order,
+          settings,
+          kitchenTickets: order.kitchenTickets || [],
+        },
+      });
+      if (job) return; // Print Server trên máy tính tiền sẽ tự lấy và in
+    }
+
+    // 2) Dự phòng: gọi Print Server ngay trên máy đang mở app
+    //    (chỉ thành công khi chính máy này đang chạy "npm run print-server").
     try {
       if (type === 'bill') {
         const res = await fetch('http://localhost:3001/print-bill', {
@@ -154,25 +177,23 @@ function MainApp() {
         }
       } else if (type === 'kot') {
         const tickets = order.kitchenTickets || [];
-        if (tickets.length) {
-          for (const ticket of tickets) {
-            await fetch('http://localhost:3001/print-kot', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                ip,
-                port,
-                order,
-                itemsToPrint: ticket.items,
-                kitchenStation: ticket.kitchenStation,
-                settings,
-              }),
-            });
-          }
+        for (const ticket of tickets) {
+          await fetch('http://localhost:3001/print-kot', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ip,
+              port,
+              order,
+              itemsToPrint: ticket.items,
+              kitchenStation: ticket.kitchenStation,
+              settings,
+            }),
+          });
         }
       }
-    } catch (e) {
-      alert('Không kết nối được Print Server (chạy "npm run print-server"). Đã chuyển về in qua trình duyệt.');
+    } catch {
+      alert('Không kết nối được máy in LAN. Đã chuyển về in qua trình duyệt.');
       doPrint();
     }
   };

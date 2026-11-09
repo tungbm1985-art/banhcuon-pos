@@ -1308,6 +1308,52 @@ export async function seedInitialDataToSupabase() {
   return true;
 }
 
+// ==============================================================================
+// 10. PRINT QUEUE (Hàng đợi in qua Supabase)
+// ==============================================================================
+// Ứng dụng (kể cả trên điện thoại dùng WiFi quán hay 4G) chỉ cần ghi 1 dòng
+// vào bảng print_jobs. Print Server trên máy tính tiền sẽ quét và đẩy sang máy in LAN.
+
+export function isPrintQueueAvailable() {
+  return !!getSupabase();
+}
+
+export async function createPrintJob({ jobType, printerIp, printerPort, payload }) {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
+  const { data, error } = await supabase
+    .from('print_jobs')
+    .insert([
+      {
+        job_type: jobType,
+        printer_ip: printerIp,
+        printer_port: printerPort || 9100,
+        payload,
+      },
+    ])
+    .select()
+    .single();
+
+  if (error) {
+    console.warn('createPrintJob error:', error.message);
+    return null;
+  }
+  return data;
+}
+
+export async function getPrintJob(id) {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
+  const { data, error } = await supabase.from('print_jobs').select('*').eq('id', id).single();
+  if (error) {
+    console.warn('getPrintJob error:', error.message);
+    return null;
+  }
+  return data;
+}
+
 export function resetLocalData() {
   localStorage.removeItem(STORAGE_KEYS.TABLES);
   localStorage.removeItem(STORAGE_KEYS.MENU);

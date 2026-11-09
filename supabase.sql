@@ -229,6 +229,32 @@ DO $$ BEGIN
 END $$;
 
 -- ==============================================================================
+-- 6C. PRINT QUEUE (Hàng đợi in - cho phép in qua LAN từ điện thoại, kể cả 4G)
+-- ==============================================================================
+-- Điện thoại ghi 1 dòng vào bảng này (HTTPS, không bị trình duyệt chặn),
+-- Print Server trên máy tính tiền quét mỗi 2 giây rồi đẩy sang máy in LAN.
+CREATE TABLE IF NOT EXISTS print_jobs (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  job_type text NOT NULL,                 -- 'bill' | 'kot'
+  printer_ip text,                        -- địa chỉ IP máy in LAN
+  printer_port integer DEFAULT 9100,
+  payload jsonb NOT NULL,                 -- { order, settings, kitchenTickets }
+  status text DEFAULT 'pending',          -- 'pending' | 'processing' | 'done' | 'error'
+  error_message text,
+  created_at timestamptz DEFAULT now(),
+  processed_at timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS idx_print_jobs_status_created ON print_jobs (status, created_at);
+
+ALTER TABLE print_jobs ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'print_jobs' AND policyname = 'Public full access to print_jobs') THEN
+    CREATE POLICY "Public full access to print_jobs" ON print_jobs FOR ALL USING (true) WITH CHECK (true);
+  END IF;
+END $$;
+
+-- ==============================================================================
 -- SEED INITIAL DATA
 -- ==============================================================================
 -- Tables

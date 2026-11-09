@@ -4,18 +4,58 @@
  * Cách chạy: npm run print-server
  * Port mặc định: 3001
  *
- * API:
- *  POST /test          { ip, port }           -> kiểm tra kết nối máy in
- *  POST /print-bill    { ip, port, order }     -> in hóa đơn
- *  POST /print-kot     { ip, port, order }     -> in phiếu báo bếp (KOT)
+ * Hai chế độ hoạt động song song:
+ *  1) HTTP API (khi mở app trên chính máy tính tiền)
+ *     POST /test          { ip, port }           -> kiểm tra kết nối máy in
+ *     POST /print-bill    { ip, port, order }     -> in hóa đơn
+ *     POST /print-kot     { ip, port, order }     -> in phiếu báo bếp (KOT)
+ *  2) Hàng đợi in (để in từ điện thoại qua WiFi quán hoặc 4G)
+ *     Quét bảng "print_jobs" trên Supabase mỗi 2 giây rồi đẩy sang máy in LAN.
+ *     Cần biến môi trường VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY (đọc từ .env.local).
  */
 
 const express = require('express');
 const cors = require('cors');
 const net = require('net');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PRINT_SERVER_PORT || 3001;
+
+/* ---------------- Supabase (hàng đợi in) ---------------- */
+
+function loadEnvFiles() {
+  const env = {};
+  for (const file of ['.env.local', '.env']) {
+    try {
+      const content = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+      content.split(/\r?\n/).forEach((line) => {
+        const m = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*)\s*$/);
+        if (m) env[m[1]] = m[2].trim().replace(/^["']|["']$/g, '');
+      });
+    } catch {
+      // File không tồn tại -> bỏ qua
+    }
+  }
+  return env;
+}
+
+const envVars = loadEnvFiles();
+const SUPABASE_URL =
+  process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || envVars.VITE_SUPABASE_URL;
+const SUPABASE_KEY =
+  process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || envVars.VITE_SUPABASE_ANON_KEY;
+
+let supabase = null;
+if (SUPABASE_URL && SUPABASE_KEY) {
+  try {
+    const { createClient } = require('@supabase/supabase-js');
+    supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+  } catch (err) {
+    console.error('⚠️  Không khởi tạo được Supabase client:', err.message);
+  }
+}
 
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
@@ -186,6 +226,98 @@ function testConnection(ip, port) {
   });
 }
 
+/* ---------------- Print queue worker (Supabase) ---------------- */
+
+async function processJob(job) {
+  const { job_type, printer_ip, printer_port, payload } = job;
+  const port = printer_port || 9100;
+  const order = payload?.order || {};
+  const settings = payload?.settings || {};
+
+  if (!printer_ip) throw new Error('Thiếu địa chỉ IP máy in trong cấu hình');
+
+  if (job_type === 'bill') {
+    const { lines, cols } = buildBillLines(order, settings);
+    await sendToPrinter(printer_ip, port, buildBuffer(lines, { cols }));
+    return;
+  }
+
+  if (job_type === 'kot') {
+    const tickets = payload?.kitchenTickets || [];
+    if (!tickets.length) throw new Error('Không có món để in');
+    for (const ticket of tickets) {
+      const { lines, cols } = buildKotLines(
+        order,
+        ticket.items || [],
+        ticket.kitchenStation,
+        settings
+      );
+      await sendToPrinter(printer_ip, port, buildBuffer(lines, { cols }));
+    }
+    return;
+  }
+
+  if (job_type === 'test') {
+    await testConnection(printer_ip, port);
+    return;
+  }
+
+  throw new Error(`Loại lệnh in không hợp lệ: ${job_type}`);
+}
+
+let polling = false;
+async function pollPrintJobs() {
+  if (!supabase || polling) return;
+  polling = true;
+  try {
+    const { data, error } = await supabase
+      .from('print_jobs')
+      .select('*')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: true })
+      .limit(20);
+
+    if (error) {
+      console.error('⚠️  Không đọc được hàng đợi in:', error.message);
+      return;
+    }
+
+    for (const job of data || []) {
+      // "Giành" job bằng cách đổi trạng thái sang processing (tránh 2 máy in trùng)
+      const { data: claimed } = await supabase
+        .from('print_jobs')
+        .update({ status: 'processing' })
+        .eq('id', job.id)
+        .eq('status', 'pending')
+        .select();
+      if (!claimed || claimed.length === 0) continue;
+
+      try {
+        await processJob(job);
+        await supabase
+          .from('print_jobs')
+          .update({ status: 'done', processed_at: new Date().toISOString() })
+          .eq('id', job.id);
+        console.log(`✅ Đã in lệnh ${job.id} (${job.job_type})`);
+      } catch (err) {
+        await supabase
+          .from('print_jobs')
+          .update({
+            status: 'error',
+            error_message: err.message,
+            processed_at: new Date().toISOString(),
+          })
+          .eq('id', job.id);
+        console.error(`❌ Lỗi in lệnh ${job.id}:`, err.message);
+      }
+    }
+  } catch (err) {
+    console.error('⚠️  Lỗi vòng quét hàng đợi:', err.message);
+  } finally {
+    polling = false;
+  }
+}
+
 /* ---------------- Routes ---------------- */
 
 app.post('/test', async (req, res) => {
@@ -238,4 +370,14 @@ app.get('/health', (req, res) => {
 app.listen(PORT, () => {
   console.log(`🖨️  Print Server đang chạy tại http://localhost:${PORT}`);
   console.log(`   Endpoints: /test, /print-bill, /print-kot, /health`);
+
+  if (supabase) {
+    console.log('☁️  Hàng đợi in Supabase: BẬT (quét mỗi 2 giây)');
+    console.log('   -> Điện thoại có thể in qua WiFi quán hoặc 4G');
+    setInterval(pollPrintJobs, 2000);
+    pollPrintJobs();
+  } else {
+    console.log('⚠️  Hàng đợi in Supabase: TẮT (thiếu VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY trong .env.local)');
+    console.log('   -> Chỉ in được khi mở app trên chính máy tính tiền');
+  }
 });
