@@ -1,0 +1,85 @@
+@import "tailwindcss";
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    margin: 0;
+    padding: 0;
+    background-color: #f8fafc;
+    color: #0f172a;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    user-select: none;
+    touch-action: manipulation;
+  }
+
+  /* Optimize touch scroll */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+/* Thermal Printer Styling */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  @page {
+    margin: 0mm;
+  }
+
+  .thermal-receipt {
+    width: 54mm;
+    margin: 0 auto;
+    padding: 4px;
+    font-family: "Courier New", Courier, monospace, monospace;
+    font-size: 11px;
+    line-height: 1.25;
+    color: #000;
+  }
+
+  .thermal-receipt-80mm {
+    width: 76mm;
+    margin: 0 auto;
+    padding: 6px;
+    font-family: "Courier New", Courier, monospace;
+    font-size: 13px;
+    line-height: 1.3;
+    color: #000;
+  }
+
+  .kot-ticket-page {
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .kot-ticket-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+}
+
+@media screen {
+  .print-only {
+    display: none !important;
+  }
+}
