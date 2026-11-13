@@ -255,6 +255,61 @@ DO $$ BEGIN
 END $$;
 
 -- ==============================================================================
+-- 6D. ORDER NUMBER (Mã đơn sinh trên máy chủ - theo giờ Việt Nam, không trùng)
+-- ==============================================================================
+-- Chi tiết + lệnh chạy cho máy đang có dữ liệu: supabase_order_number_migration.sql
+CREATE TABLE IF NOT EXISTS order_number_counters (
+  order_date date PRIMARY KEY,
+  last_seq integer NOT NULL DEFAULT 0
+);
+
+-- Bật RLS và không tạo policy: chỉ hàm SECURITY DEFINER bên dưới dùng được bảng này.
+ALTER TABLE order_number_counters ENABLE ROW LEVEL SECURITY;
+
+-- Ngày của mã đơn tính theo múi giờ Asia/Ho_Chi_Minh (UTC+7): đổi lúc 00:00 giờ VN.
+CREATE OR REPLACE FUNCTION next_order_number()
+RETURNS text
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_today date := (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date;
+  v_seq integer;
+BEGIN
+  INSERT INTO order_number_counters (order_date, last_seq)
+  VALUES (v_today, 1)
+  ON CONFLICT (order_date)
+  DO UPDATE SET last_seq = order_number_counters.last_seq + 1
+  RETURNING last_seq INTO v_seq;
+
+  RETURN 'BC-' || to_char(v_today, 'YYMMDD') || '-' || lpad(v_seq::text, 3, '0');
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION next_order_number() TO anon, authenticated;
+
+-- Ràng buộc duy nhất cho mã đơn: chỉ áp cho đơn tạo từ 00:00 ngày 13/11/2026 (giờ VN)
+-- để không phải sửa/xoá các đơn cũ đang trùng mã.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public'
+      AND tablename = 'orders'
+      AND indexname = 'orders_order_number_unique_from_20261113'
+  ) THEN
+    BEGIN
+      CREATE UNIQUE INDEX orders_order_number_unique_from_20261113
+        ON orders (order_number)
+        WHERE created_at >= '2026-11-13T00:00:00+07:00';
+    EXCEPTION WHEN unique_violation THEN
+      RAISE NOTICE '⚠️  Chưa tạo được ràng buộc duy nhất cho mã đơn (có đơn mới bị trùng mã).';
+    END;
+  END IF;
+END $$;
+
+-- ==============================================================================
 -- SEED INITIAL DATA
 -- ==============================================================================
 -- Tables

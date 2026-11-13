@@ -24,6 +24,19 @@
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
+
+  /* iOS: chừa vùng an toàn (tai thỏ / thanh trạng thái / vạch home) khi mở app
+     từ màn hình chính. Trên máy khác các giá trị này bằng 0 nên không ảnh hưởng. */
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  .safe-area-x {
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
 }
 
 /* Thermal Printer Styling */

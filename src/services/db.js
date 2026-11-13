@@ -60,10 +60,46 @@ function generateUUID() {
   });
 }
 
-// Generate Order Number (sequential per day: BC-YYMMDD-001, -002, ...)
-function generateOrderNumber() {
-  const now = new Date();
-  const dateStr = now.toISOString().slice(2, 10).replace(/-/g, '');
+// Ngày của mã đơn phải tính theo giờ Việt Nam (UTC+7):
+// ngày đổi lúc 00:00 giờ VN, không phải 00:00 UTC (07:00 giờ VN).
+const VN_TIME_ZONE = 'Asia/Ho_Chi_Minh';
+
+function getVietnamDateKey(date = new Date()) {
+  // 'en-CA' cho ra đúng dạng YYYY-MM-DD
+  const isoDate = new Intl.DateTimeFormat('en-CA', {
+    timeZone: VN_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+  return isoDate.slice(2).replace(/-/g, '');
+}
+
+// Sinh mã đơn bằng máy chủ: dãy số nguyên tử theo từng ngày nên nhiều máy
+// cùng lúc cũng không trùng mã. Cần hàm next_order_number() trên Supabase
+// (xem supabase_order_number_migration.sql).
+async function fetchServerOrderNumber(supabase) {
+  try {
+    const { data, error } = await supabase.rpc('next_order_number');
+    if (!error && typeof data === 'string' && data.startsWith('BC-')) return data;
+    if (error) {
+      console.warn('Không gọi được next_order_number(), tạm dùng mã cục bộ:', error.message);
+    }
+  } catch (err) {
+    console.warn('Lỗi sinh mã đơn trên máy chủ:', err.message);
+  }
+  return null;
+}
+
+function isDuplicateOrderNumberError(error) {
+  if (!error) return false;
+  return error.code === '23505' || /duplicate key/i.test(error.message || '');
+}
+
+// Dự phòng khi chạy offline (không có Supabase): mã đơn cục bộ theo ngày giờ VN.
+// BC-YYMMDD-001, -002, ...
+function generateLocalOrderNumber() {
+  const dateStr = getVietnamDateKey();
 
   const counterKey = 'banhcuon_order_seq';
   let seq = 1;
@@ -80,8 +116,7 @@ function generateOrderNumber() {
     // fallback: still return a valid number
   }
 
-  const seqStr = String(seq).padStart(3, '0');
-  return `BC-${dateStr}-${seqStr}`;
+  return `BC-${dateStr}-${String(seq).padStart(3, '0')}`;
 }
 
 // Local storage helpers
@@ -537,11 +572,10 @@ export async function createOrder({
   const subtotal = items.reduce((sum, item) => sum + (Number(item.unit_price) * Number(item.quantity)), 0);
   const total_amount = Math.max(0, subtotal - (Number(discount) || 0));
   const orderId = generateUUID();
-  const orderNumber = generateOrderNumber();
 
   const newOrder = {
     id: orderId,
-    order_number: orderNumber,
+    order_number: null,
     table_id: table_id || null,
     order_type,
     customer_id: customer_id || null,
@@ -566,9 +600,26 @@ export async function createOrder({
   }));
 
   const supabase = getSupabase();
+  const serverNumber = supabase ? await fetchServerOrderNumber(supabase) : null;
+  const orderNumber = serverNumber || generateLocalOrderNumber();
+  newOrder.order_number = orderNumber;
+
   if (supabase) {
-    const { error: orderErr } = await supabase.from('orders').insert([newOrder]);
-    if (!orderErr) {
+    let insertError = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const { error } = await supabase.from('orders').insert([newOrder]);
+      if (!error) {
+        insertError = null;
+        break;
+      }
+      insertError = error;
+      // Mã đơn là duy nhất -> nếu trùng thì xin mã khác rồi ghi lại, không ghi đè
+      if (!isDuplicateOrderNumberError(error)) break;
+      const retryNumber = (await fetchServerOrderNumber(supabase)) || generateLocalOrderNumber();
+      newOrder.order_number = retryNumber;
+    }
+
+    if (!insertError) {
       if (newOrderItems.length > 0) {
         await supabase.from('order_items').insert(newOrderItems);
       }
@@ -577,6 +628,8 @@ export async function createOrder({
       }
       return { ...newOrder, order_items: newOrderItems };
     }
+
+    console.error('Không tạo được đơn trên Supabase:', insertError.message);
   }
 
   // Local fallback

@@ -114,8 +114,14 @@ function MainApp() {
   // Save / Update order from Drawer
   const handleSaveOrder = async (orderData) => {
     try {
+      // Đơn đã thu tiền/đã hủy thì không ghi đè nữa, tạo đơn mới
+      // (tránh món mới bị ghi vào đơn cũ và tưởng là không tạo được đơn).
+      const canEditExisting =
+        activeOrderForDrawer &&
+        (activeOrderForDrawer.status === 'pending' || activeOrderForDrawer.status === 'served');
+
       let savedOrder = null;
-      if (activeOrderForDrawer) {
+      if (canEditExisting) {
         savedOrder = await updateOrderItems(
           activeOrderForDrawer.id,
           orderData.items,
@@ -126,7 +132,9 @@ function MainApp() {
         savedOrder = await createOrder(orderData);
       }
 
-      await loadData();
+      // Làm mới dữ liệu chạy nền, không chặn bước tiếp theo
+      // (hộp thoại thanh toán phải hiện ra ngay, không đợi tải lại xong)
+      loadData();
       setActiveOrderForDrawer(savedOrder);
       return savedOrder;
     } catch (err) {
@@ -201,12 +209,15 @@ function MainApp() {
   const queuePrint = (order, type) => {
     setOrderToPrint(order);
     setPrintType(type);
-    setTimeout(() => {
+    setTimeout(async () => {
       if (useLANPrint) {
-        printViaLAN(order, type);
+        await printViaLAN(order, type);
       } else {
-        doPrint();
+        await doPrint();
       }
+      // Dọn state in sau khi in xong để lần sau không dùng lại dữ liệu cũ
+      setPrintType(null);
+      setOrderToPrint(null);
     }, 150);
   };
 
@@ -251,28 +262,31 @@ function MainApp() {
 
   // Complete Checkout
   const handleCompleteCheckout = async (paymentDetails) => {
-    if (!checkoutOrder) return;
+    const currentCheckout = checkoutOrder;
+    if (!currentCheckout) return;
     try {
-      const completed = await completeOrder(checkoutOrder.id, paymentDetails);
+      const completed = await completeOrder(currentCheckout.id, paymentDetails);
+
+      // Làm mới bảng bàn TRƯỚC khi đóng hộp thoại, để lúc bấm được vào bàn
+      // thì bàn đã hiện trống và không mở nhầm lại đơn vừa thu tiền.
       await loadData();
+
+      // Reset state sau khi thu tiền để tạo được đơn tiếp theo ngay,
+      // không phải tải lại trang.
+      setCheckoutOrder(null);
+      setIsCheckoutOpen(false);
+      setActiveOrderForDrawer(null);
+      setIsDrawerOpen(false);
 
       // Check auto print bill setting
       if (settings?.print_config?.auto_print_bill !== false) {
         const printOrder = {
           ...completed,
-          tables: completed.tables || checkoutOrder.tables || tables.find((t) => t.id === completed.table_id),
-          customers: completed.customers || checkoutOrder.customers,
+          tables: completed.tables || currentCheckout.tables || tables.find((t) => t.id === completed.table_id),
+          customers: completed.customers || currentCheckout.customers,
           created_at: completed.created_at || new Date().toISOString(),
         };
-        setOrderToPrint(printOrder);
-        setPrintType('bill');
-        setTimeout(() => {
-          if (useLANPrint) {
-            printViaLAN(printOrder, 'bill');
-          } else {
-            doPrint();
-          }
-        }, 200);
+        queuePrint(printOrder, 'bill');
       }
     } catch (err) {
       console.error('Checkout error:', err);

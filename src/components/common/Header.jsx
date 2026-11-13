@@ -35,7 +35,7 @@ export default function Header({ onRefresh, activeTab, onSelectTab }) {
   const currentBadge = currentUser ? getRoleBadge(currentUser.role) : null;
 
   return (
-    <header className="no-print sticky top-0 z-30 bg-gradient-to-r from-orange-500 to-amber-500 border-b border-orange-600/30 shadow-md">
+    <header className="no-print safe-area-top safe-area-x sticky top-0 z-30 bg-gradient-to-r from-orange-500 to-amber-500 border-b border-orange-600/30 shadow-md">
       <div className="max-w-7xl mx-auto px-3 py-2 flex items-center justify-between">
         {/* Left: Hamburger menu button & Brand */}
         <div className="flex items-center gap-2.5">
@@ -151,7 +151,7 @@ export default function Header({ onRefresh, activeTab, onSelectTab }) {
             onClick={() => setDrawerOpen(false)}
           />
           {/* Drawer panel */}
-          <aside className="fixed top-0 left-0 bottom-0 z-50 w-72 max-w-[80%] bg-white shadow-2xl flex flex-col animate-in slide-in-from-left">
+          <aside className="safe-area-top safe-area-x fixed top-0 left-0 bottom-0 z-50 w-72 max-w-[80%] bg-white shadow-2xl flex flex-col animate-in slide-in-from-left">
             {/* Drawer header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 bg-gradient-to-tr from-red-600 to-amber-500 text-white">
               <div className="flex items-center gap-2">

@@ -16,7 +16,10 @@ export default function TableMap({
   const activeOrdersByTableId = useMemo(() => {
     const map = {};
     activeOrders.forEach((order) => {
-      if (order.table_id) {
+      // Chỉ nhận đơn đang phục vụ: đơn đã thu tiền/hủy thì bàn coi như trống,
+      // tránh mở nhầm lại đơn cũ khi bấm vào bàn.
+      const isActiveOrder = order.status === 'pending' || order.status === 'served';
+      if (order.table_id && isActiveOrder) {
         map[order.table_id] = order;
       }
     });

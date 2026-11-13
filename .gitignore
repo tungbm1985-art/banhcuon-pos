@@ -17,6 +17,9 @@ dist-ssr
 .env.*
 !.env.example
 
+# Bản sao lưu dữ liệu Supabase (không đẩy lên GitHub)
+backups/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
