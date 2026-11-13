@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSettings } from '../../contexts/SettingsContext';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   saveSupabaseCredentials,
   clearSupabaseCredentials,
@@ -13,8 +14,17 @@ import {
   isPrintQueueAvailable,
   createPrintJob,
   getPrintJob,
+  backupAllData,
+  getYearDataSummary,
+  deleteYearData,
+  getDataDeletionLogs,
+  verifyAdminPassword,
+  getOrdersHistory,
+  getExpenses,
+  getCustomers,
 } from '../../services/db';
-import { getVietQRUrl, formatVND } from '../../utils/formatters';
+import { getVietQRUrl, formatDateTime } from '../../utils/formatters';
+import { exportDataFiles } from '../../utils/exportData';
 import {
   Store,
   CreditCard,
@@ -28,6 +38,12 @@ import {
   ExternalLink,
   Wifi,
   Mail,
+  HardDriveDownload,
+  FileSpreadsheet,
+  ShieldAlert,
+  Trash2,
+  Lock,
+  ClipboardList,
 } from 'lucide-react';
 
 const COMMON_BANKS = [
@@ -71,6 +87,160 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
   const [isTestingPrinter, setIsTestingPrinter] = useState(false);
 
   const usingSupabase = isUsingSupabase();
+
+  // ---- Quản lý dữ liệu (Mục 6) ----
+  const { currentUser, isAdmin } = useAuth();
+  const [isBackingUp, setIsBackingUp] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const currentYear = new Date().getFullYear();
+  const YEAR_OPTIONS = Array.from({ length: 7 }, (_, i) => currentYear - i);
+  const [deleteYear, setDeleteYear] = useState(currentYear - 1);
+  const [yearSummary, setYearSummary] = useState(null);
+  const [isCheckingYear, setIsCheckingYear] = useState(false);
+  const [yearBackupFile, setYearBackupFile] = useState(null);
+  const [isBackingUpYear, setIsBackingUpYear] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [deleteSuccess, setDeleteSuccess] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deletionLogs, setDeletionLogs] = useState([]);
+
+  const loadDeletionLogs = async () => {
+    try {
+      setDeletionLogs(await getDataDeletionLogs());
+    } catch (err) {
+      console.error('Failed to load deletion logs:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadDeletionLogs();
+  }, []);
+
+  const downloadJson = (obj, filename) => {
+    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  // Sao lưu toàn bộ dữ liệu và tải về máy
+  const handleBackupAll = async () => {
+    setIsBackingUp(true);
+    try {
+      const backup = await backupAllData();
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      downloadJson(backup, `sao-luu-toan-bo_${stamp}.json`);
+    } catch (err) {
+      alert('Lỗi sao lưu dữ liệu: ' + err.message);
+    } finally {
+      setIsBackingUp(false);
+    }
+  };
+
+  // Xuất toàn bộ dữ liệu ra Excel/CSV
+  const handleExportAll = async () => {
+    setIsExporting(true);
+    try {
+      const [orders, expenses, customers] = await Promise.all([
+        getOrdersHistory({ status: 'all' }),
+        getExpenses({}),
+        getCustomers(),
+      ]);
+      exportDataFiles({ orders, expenses, customers }, 'toan-bo-du-lieu');
+    } catch (err) {
+      alert('Lỗi xuất dữ liệu: ' + err.message);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleCheckYear = async () => {
+    setIsCheckingYear(true);
+    setYearSummary(null);
+    setYearBackupFile(null);
+    setDeleteError('');
+    setDeleteSuccess('');
+    try {
+      setYearSummary(await getYearDataSummary(deleteYear));
+    } catch (err) {
+      alert('Lỗi đối chiếu dữ liệu: ' + err.message);
+    } finally {
+      setIsCheckingYear(false);
+    }
+  };
+
+  // Tạo bản sao lưu phần dữ liệu sắp xoá và tải về
+  const handleBackupYear = async () => {
+    setIsBackingUpYear(true);
+    try {
+      const startDate = `${deleteYear}-01-01`;
+      const endDate = `${deleteYear}-12-31`;
+      const [orders, expenses] = await Promise.all([
+        getOrdersHistory({ status: 'all', startDate, endDate }),
+        getExpenses({ startDate, endDate }),
+      ]);
+      const payload = {
+        exported_at: new Date().toISOString(),
+        year: deleteYear,
+        orders,
+        expenses,
+      };
+      downloadJson(payload, `sao-luu-nam-${deleteYear}.json`);
+      setYearBackupFile(`sao-luu-nam-${deleteYear}.json`);
+    } catch (err) {
+      alert('Lỗi tạo bản sao lưu: ' + err.message);
+    } finally {
+      setIsBackingUpYear(false);
+    }
+  };
+
+  const handleDeleteYear = async () => {
+    setDeleteError('');
+    setDeleteSuccess('');
+    if (!yearSummary) {
+      setDeleteError('Vui lòng bấm "Đối chiếu" để xem số liệu năm trước khi xoá.');
+      return;
+    }
+    if (!yearBackupFile) {
+      setDeleteError('Bắt buộc tạo bản sao lưu và tải về trước khi xoá.');
+      return;
+    }
+    if (!deletePassword) {
+      setDeleteError('Vui lòng nhập mật khẩu tài khoản chủ quán.');
+      return;
+    }
+    if (!confirm(`Xoá toàn bộ đơn hàng và chi phí năm ${deleteYear}? Thao tác này không thể hoàn tác.`)) {
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      const ok = await verifyAdminPassword(deletePassword);
+      if (!ok) {
+        setDeleteError('Mật khẩu chủ quán không đúng. Không xoá dữ liệu.');
+        setIsDeleting(false);
+        return;
+      }
+      const log = await deleteYearData(deleteYear, { deletedBy: currentUser?.full_name || 'admin' });
+      setDeleteSuccess(
+        `Đã xoá ${log.orders_deleted} đơn hàng và ${log.expenses_deleted} khoản chi phí của năm ${deleteYear}.`
+      );
+      setDeletePassword('');
+      setYearSummary(null);
+      setYearBackupFile(null);
+      await loadDeletionLogs();
+    } catch (err) {
+      setDeleteError('Lỗi xoá dữ liệu: ' + err.message);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const handleSaveAll = async (e) => {
     e.preventDefault();
@@ -848,6 +1018,172 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
           </div>
         )}
       </div>
+
+      {/* 7. QUẢN LÝ DỮ LIỆU (chỉ chủ quán) */}
+      {isAdmin && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-2xs space-y-4">
+          <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+            <HardDriveDownload className="w-5 h-5 text-rose-600" />
+            <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide">
+              7. Quản Lý Dữ Liệu (Chỉ Chủ Quán)
+            </h3>
+          </div>
+
+          {/* 7.1 Sao lưu & xuất dữ liệu */}
+          <div className="rounded-2xl border border-slate-200 p-3.5 space-y-2.5">
+            <h4 className="text-xs font-black text-slate-800 uppercase tracking-wide">
+              Sao lưu &amp; xuất dữ liệu
+            </h4>
+            <p className="text-xs text-slate-500">
+              Tải một bản sao toàn bộ dữ liệu về máy để cất giữ, hoặc xuất ra Excel/CSV để tự làm báo cáo.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleBackupAll}
+                disabled={isBackingUp}
+                className="py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-black disabled:opacity-50 text-white text-xs font-bold active:scale-95 flex items-center gap-1.5"
+              >
+                <HardDriveDownload className="w-4 h-4" />
+                {isBackingUp ? 'Đang sao lưu...' : 'Sao lưu toàn bộ dữ liệu'}
+              </button>
+              <button
+                type="button"
+                onClick={handleExportAll}
+                disabled={isExporting}
+                className="py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold active:scale-95 flex items-center gap-1.5"
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                {isExporting ? 'Đang xuất...' : 'Xuất Excel/CSV toàn bộ'}
+              </button>
+            </div>
+          </div>
+
+          {/* 7.2 Xoá dữ liệu năm cũ */}
+          <div className="rounded-2xl border border-rose-200 bg-rose-50/40 p-3.5 space-y-3">
+            <h4 className="text-xs font-black text-rose-800 uppercase tracking-wide flex items-center gap-1.5">
+              <ShieldAlert className="w-4 h-4" />
+              Xoá dữ liệu năm cũ (làm nhẹ dữ liệu)
+            </h4>
+            <p className="text-xs text-slate-600">
+              Chỉ xoá <strong>đơn hàng</strong> và <strong>chi phí</strong> của năm được chọn. Giữ nguyên tài khoản
+              người dùng, thực đơn, cài đặt, khách hàng và điểm thưởng.
+            </p>
+
+            <div className="flex flex-wrap items-end gap-2">
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Chọn năm</label>
+                <select
+                  value={deleteYear}
+                  onChange={(e) => {
+                    setDeleteYear(Number(e.target.value));
+                    setYearSummary(null);
+                    setYearBackupFile(null);
+                    setDeleteError('');
+                    setDeleteSuccess('');
+                  }}
+                  className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold"
+                >
+                  {YEAR_OPTIONS.map((y) => (
+                    <option key={y} value={y}>
+                      Năm {y}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button
+                type="button"
+                onClick={handleCheckYear}
+                disabled={isCheckingYear}
+                className="py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-900 disabled:opacity-50 text-white text-xs font-bold active:scale-95"
+              >
+                {isCheckingYear ? 'Đang đối chiếu...' : 'Đối chiếu dữ liệu năm'}
+              </button>
+            </div>
+
+            {yearSummary && (
+              <div className="rounded-xl bg-white border border-rose-200 px-3 py-2 text-xs text-slate-700">
+                Năm <strong>{yearSummary.year}</strong> có <strong>{yearSummary.orders}</strong> đơn hàng và{' '}
+                <strong>{yearSummary.expenses}</strong> khoản chi phí sẽ bị xoá.
+              </div>
+            )}
+
+            <div>
+              <button
+                type="button"
+                onClick={handleBackupYear}
+                disabled={isBackingUpYear}
+                className="py-2.5 px-4 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-50 text-slate-800 text-xs font-bold active:scale-95 flex items-center gap-1.5"
+              >
+                <HardDriveDownload className="w-4 h-4" />
+                {isBackingUpYear ? 'Đang tạo bản sao lưu...' : `Tạo bản sao lưu năm ${deleteYear} & tải về`}
+              </button>
+              {yearBackupFile && (
+                <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-700 mt-1.5">
+                  <CheckCircle2 className="w-4 h-4" />
+                  Đã tải bản sao lưu: {yearBackupFile}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-slate-700 block mb-1 flex items-center gap-1.5">
+                <Lock className="w-3.5 h-3.5" />
+                Mật khẩu tài khoản chủ quán (bắt buộc để xoá)
+              </label>
+              <input
+                type="password"
+                value={deletePassword}
+                onChange={(e) => setDeletePassword(e.target.value)}
+                placeholder="Nhập mật khẩu chủ quán"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold focus:outline-hidden focus:border-rose-500"
+              />
+            </div>
+
+            {deleteError && (
+              <div className="rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-semibold px-3 py-2">
+                {deleteError}
+              </div>
+            )}
+            {deleteSuccess && (
+              <div className="rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold px-3 py-2">
+                {deleteSuccess}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={handleDeleteYear}
+              disabled={isDeleting}
+              className="py-2.5 px-4 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-bold active:scale-95 flex items-center gap-1.5"
+            >
+              <Trash2 className="w-4 h-4" />
+              {isDeleting ? 'Đang xoá...' : `Xoá đơn hàng & chi phí năm ${deleteYear}`}
+            </button>
+          </div>
+
+          {/* 7.3 Nhật ký xoá dữ liệu */}
+          <div className="rounded-2xl border border-slate-200 p-3.5 space-y-2">
+            <h4 className="text-xs font-black text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
+              <ClipboardList className="w-4 h-4" />
+              Nhật ký xoá dữ liệu
+            </h4>
+            {deletionLogs.length === 0 ? (
+              <p className="text-xs text-slate-400">Chưa có lần xoá dữ liệu nào.</p>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {deletionLogs.slice(0, 10).map((log, idx) => (
+                  <div key={log.id || idx} className="py-2 text-xs text-slate-600">
+                    <span className="font-bold text-slate-800">{formatDateTime(log.deleted_at)}</span> ·{' '}
+                    {log.deleted_by || 'admin'} · Năm <strong>{log.year}</strong> · xoá{' '}
+                    {log.orders_deleted} đơn hàng, {log.expenses_deleted} chi phí
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

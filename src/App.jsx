@@ -295,13 +295,18 @@ function MainApp() {
   };
 
   // Cancel order
-  const handleCancelOrder = async (orderId) => {
+  const handleCancelOrder = async (orderId, options = {}) => {
     try {
-      await cancelOrder(orderId, 'Hủy bởi nhân viên');
+      await cancelOrder(orderId, {
+        reason: options.reason || 'Huỷ đơn chưa thanh toán',
+        cancelledBy: options.cancelledBy || currentUser?.full_name || '',
+      });
       setIsDrawerOpen(false);
       await loadData();
+      return true;
     } catch (err) {
       alert('Lỗi hủy đơn: ' + err.message);
+      throw err;
     }
   };
 
@@ -478,8 +483,33 @@ function MainApp() {
     });
   };
 
+  // Đợi mọi ảnh trong khu vực in (đặc biệt là mã QR VietQR) tải xong TRƯỚC khi
+  // mở hộp thoại in. Nếu không đợi, ảnh QR chưa kịp hiện nên phiếu in chỉ có
+  // khung trống kèm chữ "VietQR Payment".
+  const waitForPrintImages = async () => {
+    const container = document.querySelector('.print-only');
+    if (!container) return;
+    const imgs = Array.from(container.querySelectorAll('img'));
+    await Promise.all(
+      imgs.map((img) => {
+        if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+        if (typeof img.decode === 'function') {
+          return img.decode().catch(() => {});
+        }
+        return new Promise((resolve) => {
+          img.addEventListener('load', resolve, { once: true });
+          img.addEventListener('error', resolve, { once: true });
+          setTimeout(resolve, 4000);
+        });
+      })
+    );
+    // Cho trình duyệt 1 nhịp vẽ lại trước khi in.
+    await new Promise((resolve) => setTimeout(resolve, 60));
+  };
+
   // Wrapper that shows appropriate warnings and keeps current behavior on success
   const doPrint = async () => {
+    await waitForPrintImages();
     const status = await safePrint();
     if (status === 'not-installed') {
       alert('Thiết bị chưa cài đặt máy in. Vui lòng cài đặt máy in trước khi in.');
@@ -538,7 +568,13 @@ function MainApp() {
           />
         )}
 
-        {activeTab === 'history' && <OrderHistory onReprintBill={handleReprintBill} />}
+        {activeTab === 'history' && (
+          <OrderHistory
+            onReprintBill={handleReprintBill}
+            onCancelOrder={handleCancelOrder}
+            isAdmin={isAdmin}
+          />
+        )}
 
         {activeTab === 'menu' && (
           <MenuManager
@@ -614,7 +650,7 @@ function MainApp() {
           onPrintBill={handlePrintBill}
           onOpenCheckout={handleOpenCheckout}
           onCancelOrder={handleCancelOrder}
-          canCancel={isAdmin}
+          canCancel={true}
         />
       )}
 

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { getExpenses, createExpense, updateExpense, deleteExpense } from '../../services/db';
 import { formatVND, formatDate } from '../../utils/formatters';
-import { Plus, Trash2, Edit2, Receipt, Calendar, Tag, FileText } from 'lucide-react';
+import { getDateRangeForPreset, exportDataFiles } from '../../utils/exportData';
+import { Plus, Trash2, Edit2, Receipt, FileSpreadsheet } from 'lucide-react';
 import Modal from '../common/Modal';
 
 const CATEGORIES = [
@@ -12,11 +13,20 @@ const CATEGORIES = [
   'Khác',
 ];
 
+const RANGE_PRESETS = [
+  { id: 'today', label: 'Hôm nay' },
+  { id: 'week', label: 'Tuần này' },
+  { id: 'month', label: 'Tháng này' },
+  { id: 'all', label: 'Tất cả' },
+];
+
 export default function ExpenseManager() {
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState('Tất cả');
-  const [dateFilter, setDateFilter] = useState('');
+  const [rangePreset, setRangePreset] = useState('month');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState(null);
 
@@ -30,10 +40,11 @@ export default function ExpenseManager() {
   const loadData = async () => {
     try {
       setLoading(true);
+      const { startDate, endDate } = getDateRangeForPreset(rangePreset, customStart, customEnd);
       const data = await getExpenses({
         category: selectedCategory,
-        startDate: dateFilter || undefined,
-        endDate: dateFilter || undefined,
+        startDate,
+        endDate,
       });
       setExpenses(data);
     } catch (e) {
@@ -44,8 +55,10 @@ export default function ExpenseManager() {
   };
 
   useEffect(() => {
+    if (rangePreset === 'custom' && (!customStart || !customEnd)) return;
     loadData();
-  }, [selectedCategory, dateFilter]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCategory, rangePreset, customStart, customEnd]);
 
   const handleOpenAdd = () => {
     setEditingExpense(null);
@@ -137,7 +150,10 @@ export default function ExpenseManager() {
       <div className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-2xl p-4 text-white flex items-center justify-between shadow-md">
         <div>
           <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-            Tổng chi phí ({expenses.length} khoản chi)
+            Tổng chi phí ({expenses.length} khoản chi) ·{' '}
+            {rangePreset === 'custom'
+              ? `${customStart || '...'} → ${customEnd || '...'}`
+              : RANGE_PRESETS.find((p) => p.id === rangePreset)?.label}
           </span>
           <div className="text-2xl sm:text-3xl font-black text-white mt-0.5">
             {formatVND(totalAmount)}
@@ -149,39 +165,101 @@ export default function ExpenseManager() {
       </div>
 
       {/* Filter Row */}
-      <div className="flex flex-col sm:flex-row gap-2">
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 flex-1">
-          <button
-            onClick={() => setSelectedCategory('Tất cả')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap active:scale-95 ${
-              selectedCategory === 'Tất cả'
-                ? 'bg-slate-900 text-white shadow-xs'
-                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            Tất cả danh mục
-          </button>
-          {CATEGORIES.map((cat) => (
+      <div className="space-y-2">
+        <div className="flex flex-col sm:flex-row gap-2">
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 flex-1">
             <button
-              key={cat}
-              onClick={() => setSelectedCategory(cat)}
+              onClick={() => setSelectedCategory('Tất cả')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap active:scale-95 ${
-                selectedCategory === cat
+                selectedCategory === 'Tất cả'
                   ? 'bg-slate-900 text-white shadow-xs'
                   : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
               }`}
             >
-              {cat}
+              Tất cả danh mục
             </button>
-          ))}
+            {CATEGORIES.map((cat) => (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap active:scale-95 ${
+                  selectedCategory === cat
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={() =>
+              exportDataFiles(
+                { expenses },
+                `chi-phi_${RANGE_PRESETS.find((p) => p.id === rangePreset)?.label || customStart || 'all'}`
+              )
+            }
+            disabled={expenses.length === 0}
+            className="self-start flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-xs font-bold whitespace-nowrap active:scale-95"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            Xuất Excel/CSV
+          </button>
         </div>
 
-        <input
-          type="date"
-          value={dateFilter}
-          onChange={(e) => setDateFilter(e.target.value)}
-          className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700"
-        />
+        {/* Bộ lọc khoảng thời gian */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {RANGE_PRESETS.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setRangePreset(p.id)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap active:scale-95 ${
+                rangePreset === p.id
+                  ? 'bg-red-600 text-white shadow-xs'
+                  : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setRangePreset('custom')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap active:scale-95 ${
+              rangePreset === 'custom'
+                ? 'bg-red-600 text-white shadow-xs'
+                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            Từ ngày – đến ngày
+          </button>
+        </div>
+
+        {rangePreset === 'custom' && (
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="date"
+              value={customStart}
+              onChange={(e) => setCustomStart(e.target.value)}
+              className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700"
+            />
+            <span className="text-xs text-slate-400">đến</span>
+            <input
+              type="date"
+              value={customEnd}
+              onChange={(e) => setCustomEnd(e.target.value)}
+              className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700"
+            />
+            {(!customStart || !customEnd) && (
+              <span className="text-xs text-amber-600 font-semibold">
+                Chọn đủ ngày bắt đầu và kết thúc
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Expenses Table / Cards */}

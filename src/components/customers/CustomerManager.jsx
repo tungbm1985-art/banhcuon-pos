@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { getCustomers, createCustomer, updateCustomer, getOrdersHistory } from '../../services/db';
 import { formatVND, formatDateTime } from '../../utils/formatters';
-import { Search, UserPlus, Star, Phone, History, CreditCard, Edit, Check } from 'lucide-react';
+import { exportDataFiles } from '../../utils/exportData';
+import { Search, UserPlus, Star, Phone, History, CreditCard, Edit, Check, FileSpreadsheet } from 'lucide-react';
 import Modal from '../common/Modal';
 
 export default function CustomerManager({ loyaltyConfig }) {
@@ -76,13 +77,24 @@ export default function CustomerManager({ loyaltyConfig }) {
           </p>
         </div>
 
-        <button
-          onClick={() => setIsAddModalOpen(true)}
-          className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs sm:text-sm shadow-xs active:scale-95 transition-all"
-        >
-          <UserPlus className="w-4 h-4" />
-          <span>Thêm Khách Hàng</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => exportDataFiles({ customers }, 'khach-hang')}
+            disabled={customers.length === 0}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-bold text-xs sm:text-sm active:scale-95 transition-all"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>Xuất Excel/CSV</span>
+          </button>
+          <button
+            onClick={() => setIsAddModalOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs sm:text-sm shadow-xs active:scale-95 transition-all"
+          >
+            <UserPlus className="w-4 h-4" />
+            <span>Thêm Khách Hàng</span>
+          </button>
+        </div>
       </div>
 
       {/* Search Input */}

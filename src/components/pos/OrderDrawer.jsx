@@ -69,7 +69,6 @@ export default function OrderDrawer({
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [orderNotes, setOrderNotes] = useState('');
   const [discountAmount, setDiscountAmount] = useState(0);
-  const [pointsRedeemed, setPointsRedeemed] = useState(0);
   const [activeTab, setActiveTab] = useState('menu'); // 'menu' | 'cart'
   const [editingNotesItemIdx, setEditingNotesItemIdx] = useState(null);
   // Per order: quantities already sent to the kitchen, plus idle taps.
@@ -78,6 +77,17 @@ export default function OrderDrawer({
   const [kotIdle, setKotIdle] = useState(0);
   // Chặn bấm trùng khi đang xử lý (tránh in trùng phiếu bếp)
   const [sendingKot, setSendingKot] = useState(false);
+  // Thông báo to khi đã báo bếp hết
+  const [kotNotice, setKotNotice] = useState(false);
+  const kotNoticeTimer = useRef(null);
+
+  const showKotNotice = () => {
+    setKotNotice(true);
+    clearTimeout(kotNoticeTimer.current);
+    kotNoticeTimer.current = setTimeout(() => setKotNotice(false), 3200);
+  };
+
+  useEffect(() => () => clearTimeout(kotNoticeTimer.current), []);
 
   // Initialize or update from activeOrder
   useEffect(() => {
@@ -107,7 +117,6 @@ export default function OrderDrawer({
       setSelectedCustomer(null);
       setOrderNotes('');
       setDiscountAmount(0);
-      setPointsRedeemed(0);
       setActiveTab('menu');
     }
   }, [activeOrder, table, isOpen, menuItems]);
@@ -177,11 +186,6 @@ export default function OrderDrawer({
     });
   };
 
-  const handleApplyDiscount = (amount, pointsUsed = 0) => {
-    setDiscountAmount(amount);
-    setPointsRedeemed(pointsUsed);
-  };
-
   const subtotal = cartItems.reduce(
     (sum, item) => sum + Number(item.price) * Number(item.quantity),
     0
@@ -200,7 +204,6 @@ export default function OrderDrawer({
       customer_id: selectedCustomer?.id || null,
       notes: orderNotes,
       discount: discountAmount,
-      points_redeemed: pointsRedeemed,
       items: cartItems.map((it) => ({
         id: it.id,
         menu_item_id: it.menu_item_id || it.id,
@@ -268,13 +271,7 @@ export default function OrderDrawer({
 
     if (decision.action === 'noop') {
       rememberKot(orderId, decision);
-      const nth = decision.idlePresses;
-      alert(
-        `Tất cả món đã được báo bếp rồi! Không có món mới nào cần gửi.\n` +
-          `(Lần ${nth}/${KOT_REPRINT_ON_PRESS - 1}. Bấm thêm ${
-            KOT_REPRINT_ON_PRESS - nth
-          } lần nữa để in lại toàn bộ phiếu bếp.)`
-      );
+      showKotNotice();
       return;
     }
 
@@ -311,7 +308,6 @@ export default function OrderDrawer({
         ...saved,
         total_amount: totalAmount,
         discount: discountAmount,
-        points_redeemed: pointsRedeemed,
         customers: selectedCustomer,
         tables: table,
       });
@@ -415,9 +411,6 @@ export default function OrderDrawer({
                 selectedCustomer={selectedCustomer}
                 onSelectCustomer={setSelectedCustomer}
                 loyaltyConfig={settings?.loyalty_config}
-                currentSubtotal={subtotal}
-                redeemedDiscount={discountAmount}
-                onApplyDiscount={handleApplyDiscount}
               />
 
               {/* Cart Items List */}
@@ -617,6 +610,23 @@ export default function OrderDrawer({
           )}
         </div>
       </div>
+
+      {/* Thông báo to khi đã báo bếp hết */}
+      {kotNotice && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 px-4"
+          onClick={() => setKotNotice(false)}
+        >
+          <div className="bg-white rounded-3xl px-8 py-7 text-center shadow-2xl max-w-sm w-full">
+            <div className="text-4xl sm:text-5xl font-black text-red-600 tracking-tight">
+              ĐÃ BÁO HẾT
+            </div>
+            <div className="mt-3 text-base sm:text-lg font-bold text-slate-700">
+              Bấm thêm 3 lần để in báo lại toàn bộ
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

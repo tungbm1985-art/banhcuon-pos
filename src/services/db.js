@@ -28,6 +28,7 @@ const STORAGE_KEYS = {
   WALLETS: 'banhcuon_wallets',
   FINANCE_CATEGORIES: 'banhcuon_finance_categories',
   TRANSACTIONS: 'banhcuon_transactions',
+  DELETION_LOGS: 'banhcuon_data_deletion_logs',
 };
 
 // Listeners for local changes to simulate realtime when using local storage
@@ -58,6 +59,18 @@ function generateUUID() {
     const v = c === 'x' ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
+}
+
+// Tìm khách theo tên không dấu, không phân biệt hoa thường:
+// gõ "tung" phải ra "Tùng", gõ "le hoang" phải ra "Lê Hoàng".
+export function normalizeSearchText(text) {
+  return String(text || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase()
+    .trim();
 }
 
 // Ngày của mã đơn phải tính theo giờ Việt Nam (UTC+7):
@@ -410,22 +423,23 @@ export async function deleteMenuItem(id) {
 // ==============================================================================
 
 export async function getCustomers(query = '') {
+  const rawQuery = String(query || '').trim();
+  const q = normalizeSearchText(rawQuery);
+  const matchCustomer = (c) =>
+    normalizeSearchText(c.full_name).includes(q) || String(c.phone || '').includes(rawQuery);
+
   const supabase = getSupabase();
   if (supabase) {
-    let q = supabase.from('customers').select('*').order('full_name');
-    if (query) {
-      q = q.or(`full_name.ilike.%${query}%,phone.ilike.%${query}%`);
+    const { data, error } = await supabase.from('customers').select('*').order('full_name');
+    if (!error && data) {
+      // Lọc ngay trên máy để khớp cả tên không dấu (Supabase ilike chỉ khớp không phân biệt hoa thường).
+      return q ? data.filter(matchCustomer) : data;
     }
-    const { data, error } = await q;
-    if (!error && data) return data;
   }
 
   let customers = getLocalItem(STORAGE_KEYS.CUSTOMERS, INITIAL_CUSTOMERS);
-  if (query) {
-    const qLower = query.toLowerCase();
-    customers = customers.filter(
-      (c) => c.full_name.toLowerCase().includes(qLower) || c.phone.includes(qLower)
-    );
+  if (q) {
+    customers = customers.filter(matchCustomer);
   }
   return customers;
 }
@@ -561,6 +575,20 @@ export async function getOrderById(orderId) {
   };
 }
 
+// Món có thể đã bị xoá khỏi thực đơn sau khi đơn được tạo. Khi đó khoá ngoại
+// menu_item_id trỏ tới món không còn tồn tại sẽ làm lệnh ghi thất bại và mất
+// dòng món của đơn cũ. Tên món và đơn giá đã được chụp lại (snapshot) trong
+// order_items nên chỉ cần đưa menu_item_id về null là an toàn.
+async function sanitizeItemsMenuId(supabase, items) {
+  if (items.length === 0) return items;
+  const { data } = await supabase.from('menu_items').select('id');
+  const validIds = new Set((data || []).map((m) => m.id));
+  return items.map((it) => ({
+    ...it,
+    menu_item_id: it.menu_item_id && validIds.has(it.menu_item_id) ? it.menu_item_id : null,
+  }));
+}
+
 export async function createOrder({
   table_id,
   order_type = 'dine_in',
@@ -621,7 +649,8 @@ export async function createOrder({
 
     if (!insertError) {
       if (newOrderItems.length > 0) {
-        await supabase.from('order_items').insert(newOrderItems);
+        const itemsToInsert = await sanitizeItemsMenuId(supabase, newOrderItems);
+        await supabase.from('order_items').insert(itemsToInsert);
       }
       if (table_id) {
         await supabase.from('tables').update({ status: 'occupied' }).eq('id', table_id);
@@ -674,7 +703,8 @@ export async function updateOrderItems(orderId, items, notes, discount = 0) {
     await supabase.from('orders').update(updates).eq('id', orderId);
     await supabase.from('order_items').delete().eq('order_id', orderId);
     if (newOrderItems.length > 0) {
-      await supabase.from('order_items').insert(newOrderItems);
+      const itemsToInsert = await sanitizeItemsMenuId(supabase, newOrderItems);
+      await supabase.from('order_items').insert(itemsToInsert);
     }
     return getOrderById(orderId);
   }
@@ -712,6 +742,8 @@ export async function completeOrder(
     payment_method,
     discount,
     total_amount: totalAmount,
+    points_earned: Number(points_earned) || 0,
+    points_redeemed: Number(points_redeemed) || 0,
     completed_at: completedAt,
   };
 
@@ -748,15 +780,34 @@ export async function completeOrder(
   return getOrderById(orderId);
 }
 
-export async function cancelOrder(orderId, reason = '') {
+export async function cancelOrder(orderId, { reason = '', cancelledBy = '' } = {}) {
   const currentOrder = await getOrderById(orderId);
   if (!currentOrder) throw new Error('Không tìm thấy đơn hàng!');
+  // Đã huỷ rồi thì bỏ qua, tránh trừ/hoàn điểm hai lần.
+  if (currentOrder.status === 'cancelled') return getOrderById(orderId);
+
+  const wasCompleted = currentOrder.status === 'completed';
+  const now = new Date().toISOString();
 
   const updates = {
     status: 'cancelled',
-    notes: currentOrder.notes ? `${currentOrder.notes} (Hủy: ${reason})` : `Hủy: ${reason}`,
-    completed_at: new Date().toISOString(),
+    cancel_reason: String(reason || ''),
+    cancelled_by: String(cancelledBy || ''),
+    cancelled_at: now,
   };
+  // Đơn đã thanh toán phải giữ nguyên completed_at (thời điểm thu tiền).
+  if (!wasCompleted) {
+    updates.completed_at = now;
+  }
+
+  // Đơn đã thanh toán: hoàn lại điểm khách đã dùng, trừ lại điểm đã tích,
+  // và trừ doanh số đã cộng cho khách.
+  let pointsDelta = 0;
+  let spendDelta = 0;
+  if (wasCompleted && currentOrder.customer_id) {
+    pointsDelta = (Number(currentOrder.points_redeemed) || 0) - (Number(currentOrder.points_earned) || 0);
+    spendDelta = -(Number(currentOrder.total_amount) || 0);
+  }
 
   const supabase = getSupabase();
   if (supabase) {
@@ -778,7 +829,11 @@ export async function cancelOrder(orderId, reason = '') {
     }
   }
 
-  return true;
+  if (currentOrder.customer_id && (pointsDelta !== 0 || spendDelta !== 0)) {
+    await adjustCustomerPointsAndSpend(currentOrder.customer_id, pointsDelta, spendDelta);
+  }
+
+  return getOrderById(orderId);
 }
 
 export async function getOrdersHistory({ startDate, endDate, status = 'completed' } = {}) {
@@ -1488,4 +1543,191 @@ export function resetLocalData() {
   notifyLocalListeners('tables', { eventType: 'RESET' });
   notifyLocalListeners('orders', { eventType: 'RESET' });
   return true;
+}
+
+// ==============================================================================
+// 11. QUẢN LÝ DỮ LIỆU (Sao lưu toàn bộ / Xoá dữ liệu năm cũ)
+// ==============================================================================
+
+// Xác nhận mật khẩu tài khoản chủ quán (admin). Dùng cho thao tác nguy hiểm:
+// xoá dữ liệu năm cũ, huỷ đơn đã thanh toán.
+export async function verifyAdminPassword(password) {
+  if (!password) return false;
+  const admin = await getAdminAccount();
+  if (!admin) return false;
+  const user = await authenticateStaff(admin.username, password);
+  return !!user && user.role === 'admin';
+}
+
+const BACKUP_TABLES = [
+  'tables',
+  'menu_items',
+  'customers',
+  'orders',
+  'order_items',
+  'expenses',
+  'staff',
+  'system_settings',
+];
+
+// Khoảng thời gian của 1 năm theo giờ Việt Nam (UTC+7).
+function getYearRange(year) {
+  const start = new Date(`${year}-01-01T00:00:00+07:00`);
+  const end = new Date(`${Number(year) + 1}-01-01T00:00:00+07:00`);
+  return { start, end, startISO: start.toISOString(), endISO: end.toISOString() };
+}
+
+// Tạo bản sao lưu toàn bộ dữ liệu để tải về máy.
+export async function backupAllData() {
+  const supabase = getSupabase();
+  const payload = {};
+
+  if (supabase) {
+    for (const table of BACKUP_TABLES) {
+      const { data, error } = await supabase.from(table).select('*');
+      payload[table] = error ? [] : data || [];
+    }
+  } else {
+    payload.tables = getLocalItem(STORAGE_KEYS.TABLES, INITIAL_TABLES);
+    payload.menu_items = getLocalItem(STORAGE_KEYS.MENU, INITIAL_MENU_ITEMS);
+    payload.customers = getLocalItem(STORAGE_KEYS.CUSTOMERS, INITIAL_CUSTOMERS);
+    payload.orders = getLocalItem(STORAGE_KEYS.ORDERS, []);
+    payload.order_items = getLocalItem(STORAGE_KEYS.ORDER_ITEMS, []);
+    payload.expenses = getLocalItem(STORAGE_KEYS.EXPENSES, INITIAL_EXPENSES);
+    payload.staff = getLocalItem(STORAGE_KEYS.STAFF, INITIAL_STAFF);
+    payload.system_settings = Object.entries(getLocalItem(STORAGE_KEYS.SETTINGS, INITIAL_SETTINGS)).map(
+      ([key, value]) => ({ key, value })
+    );
+  }
+
+  return {
+    exported_at: new Date().toISOString(),
+    source: supabase ? 'supabase' : 'local',
+    ...payload,
+  };
+}
+
+// Đếm số đơn hàng và chi phí thuộc 1 năm (để đối chiếu trước khi xoá).
+export async function getYearDataSummary(year) {
+  const y = Number(year);
+  const { start, end, startISO, endISO } = getYearRange(y);
+  const supabase = getSupabase();
+
+  if (supabase) {
+    const { count: ordersCount } = await supabase
+      .from('orders')
+      .select('id', { count: 'exact', head: true })
+      .gte('created_at', startISO)
+      .lt('created_at', endISO);
+    const { count: expensesCount } = await supabase
+      .from('expenses')
+      .select('id', { count: 'exact', head: true })
+      .gte('expense_date', `${y}-01-01`)
+      .lte('expense_date', `${y}-12-31`);
+    return { year: y, orders: ordersCount || 0, expenses: expensesCount || 0 };
+  }
+
+  const orders = getLocalItem(STORAGE_KEYS.ORDERS, []).filter((o) => {
+    const t = new Date(o.created_at).getTime();
+    return t >= start.getTime() && t < end.getTime();
+  });
+  const expenses = getLocalItem(STORAGE_KEYS.EXPENSES, INITIAL_EXPENSES).filter(
+    (e) => String(e.expense_date || '').slice(0, 4) === String(y)
+  );
+  return { year: y, orders: orders.length, expenses: expenses.length };
+}
+
+// Xoá đơn hàng + chi phí của 1 năm. Giữ nguyên tài khoản, thực đơn, cài đặt,
+// khách hàng và điểm thưởng. Ghi nhật ký lần xoá.
+export async function deleteYearData(year, { deletedBy = '' } = {}) {
+  const y = Number(year);
+  const { start, end, startISO, endISO } = getYearRange(y);
+  const supabase = getSupabase();
+
+  if (supabase) {
+    const { data: yearOrders } = await supabase
+      .from('orders')
+      .select('id')
+      .gte('created_at', startISO)
+      .lt('created_at', endISO);
+    const orderIds = (yearOrders || []).map((o) => o.id);
+
+    if (orderIds.length > 0) {
+      await supabase.from('order_items').delete().in('order_id', orderIds);
+    }
+    await supabase.from('orders').delete().gte('created_at', startISO).lt('created_at', endISO);
+
+    const { count: expensesCount } = await supabase
+      .from('expenses')
+      .select('id', { count: 'exact', head: true })
+      .gte('expense_date', `${y}-01-01`)
+      .lte('expense_date', `${y}-12-31`);
+    await supabase
+      .from('expenses')
+      .delete()
+      .gte('expense_date', `${y}-01-01`)
+      .lte('expense_date', `${y}-12-31`);
+
+    const log = {
+      deleted_at: new Date().toISOString(),
+      deleted_by: deletedBy || 'admin',
+      year: y,
+      orders_deleted: orderIds.length,
+      expenses_deleted: expensesCount || 0,
+    };
+    await supabase.from('data_deletion_logs').insert([log]);
+    return log;
+  }
+
+  // Local
+  const orders = getLocalItem(STORAGE_KEYS.ORDERS, []);
+  const yearOrderIds = new Set(
+    orders
+      .filter((o) => {
+        const t = new Date(o.created_at).getTime();
+        return t >= start.getTime() && t < end.getTime();
+      })
+      .map((o) => o.id)
+  );
+  setLocalItem(
+    STORAGE_KEYS.ORDERS,
+    orders.filter((o) => !yearOrderIds.has(o.id))
+  );
+
+  const items = getLocalItem(STORAGE_KEYS.ORDER_ITEMS, []);
+  setLocalItem(
+    STORAGE_KEYS.ORDER_ITEMS,
+    items.filter((i) => !yearOrderIds.has(i.order_id))
+  );
+
+  const expenses = getLocalItem(STORAGE_KEYS.EXPENSES, INITIAL_EXPENSES);
+  const remainingExpenses = expenses.filter((e) => String(e.expense_date || '').slice(0, 4) !== String(y));
+  setLocalItem(STORAGE_KEYS.EXPENSES, remainingExpenses);
+
+  const log = {
+    id: generateUUID(),
+    deleted_at: new Date().toISOString(),
+    deleted_by: deletedBy || 'admin',
+    year: y,
+    orders_deleted: yearOrderIds.size,
+    expenses_deleted: expenses.length - remainingExpenses.length,
+  };
+  const logs = getLocalItem(STORAGE_KEYS.DELETION_LOGS, []);
+  logs.unshift(log);
+  setLocalItem(STORAGE_KEYS.DELETION_LOGS, logs);
+
+  notifyLocalListeners('orders', { eventType: 'RESET' });
+  return log;
+}
+
+export async function getDataDeletionLogs() {
+  const supabase = getSupabase();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('data_deletion_logs')
+      .select('*')
+      .order('deleted_at', { ascending: false });
+    if (!error && data) return data;
+  }
+  return getLocalItem(STORAGE_KEYS.DELETION_LOGS, []);
 }

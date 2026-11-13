@@ -39,6 +39,19 @@ export default function BillReceipt({
         <div className="text-[10px] font-mono">Mã: {order.order_number}</div>
       </div>
 
+      {/* Cancelled stamp */}
+      {order.status === 'cancelled' && (
+        <div className="text-center my-2 py-1 border-2 border-black">
+          <div className="text-base font-black tracking-widest">*** ĐÃ HUỶ ***</div>
+          {order.cancel_reason && (
+            <div className="text-[9px] mt-0.5">Lý do: {order.cancel_reason}</div>
+          )}
+          {order.cancelled_by && (
+            <div className="text-[9px]">Người huỷ: {order.cancelled_by}</div>
+          )}
+        </div>
+      )}
+
       {/* Meta info */}
       <div className="text-[10px] pb-1 border-b border-dashed border-black">
         <div className="flex justify-between">
@@ -122,8 +135,11 @@ export default function BillReceipt({
           <img
             src={qrUrl}
             alt="VietQR Payment"
+            width="144"
+            height="144"
+            loading="eager"
+            decoding="sync"
             className="w-36 h-36 mx-auto object-contain border border-gray-300 rounded p-0.5"
-            crossOrigin="anonymous"
           />
           <div className="text-[9px] mt-1 text-gray-700">
             {vietqrConfig.bank_id} - STK: {vietqrConfig.account_no}

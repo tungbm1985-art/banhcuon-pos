@@ -16,29 +16,48 @@ export default function CheckoutModal({
   const [cashReceived, setCashReceived] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [pointsInput, setPointsInput] = useState(0);
 
-  useEffect(() => {
-    if (order) {
-      setCashReceived(order.total_amount || 0);
-      setPaymentMethod('vietqr');
-    }
-  }, [order, isOpen]);
-
-  if (!order || !isOpen) return null;
-
-  const totalAmount = order.total_amount || 0;
+  const totalAmount = order?.total_amount || 0;
   const vietqrConfig = settings?.vietqr_config || {};
   const loyaltyConfig = settings?.loyalty_config || {};
 
+  // Đổi điểm thưởng ngay khi thanh toán
+  const customerPoints = Number(order?.customers?.points) || 0;
+  const redeemRate = Number(loyaltyConfig.redeem_rate) || 0;
+  const canRedeem = !!loyaltyConfig.enabled && redeemRate > 0 && customerPoints > 0;
+  const maxPointsByAmount = redeemRate > 0 ? Math.floor(totalAmount / redeemRate) : 0;
+  const maxPoints = Math.min(customerPoints, maxPointsByAmount);
+  const pointsUsed = Math.min(Math.max(0, Number(pointsInput) || 0), maxPoints);
+  const pointsDiscount = pointsUsed * redeemRate;
+  const finalAmount = Math.max(0, totalAmount - pointsDiscount);
+
+  useEffect(() => {
+    if (order) {
+      setPaymentMethod('vietqr');
+      setPointsInput(0);
+      setCashReceived(order.total_amount || 0);
+    }
+  }, [order, isOpen]);
+
+  // Khi số điểm dùng thay đổi, cập nhật lại số tiền khách đưa (tab tiền mặt)
+  useEffect(() => {
+    if (order && paymentMethod === 'cash') {
+      setCashReceived(finalAmount);
+    }
+  }, [finalAmount, paymentMethod, order]);
+
+  if (!order || !isOpen) return null;
+
   const tableName = order.tables?.name || (order.order_type === 'takeaway' ? '🛍️ Mang Về' : 'Bàn');
-  const qrUrl = getVietQRUrl(vietqrConfig, totalAmount, `${tableName} ${order.order_number}`);
+  const qrUrl = getVietQRUrl(vietqrConfig, finalAmount, `${tableName} ${order.order_number}`);
 
   const pointsEarned = loyaltyConfig.enabled && loyaltyConfig.earn_rate
-    ? Math.floor(totalAmount / loyaltyConfig.earn_rate)
+    ? Math.floor(finalAmount / loyaltyConfig.earn_rate)
     : 0;
 
   const handleFinish = async () => {
-    if (paymentMethod === 'cash' && cashReceived < totalAmount) {
+    if (paymentMethod === 'cash' && cashReceived < finalAmount) {
       alert('Số tiền khách đưa chưa đủ để thanh toán!');
       return;
     }
@@ -48,8 +67,9 @@ export default function CheckoutModal({
       await onCompleteCheckout({
         payment_method: paymentMethod,
         cash_received: cashReceived,
+        discount: (Number(order.discount) || 0) + pointsDiscount,
         points_earned: pointsEarned,
-        points_redeemed: order.points_redeemed || 0,
+        points_redeemed: pointsUsed,
       });
       onClose();
     } catch (err) {
@@ -83,11 +103,11 @@ export default function CheckoutModal({
             Tổng tiền cần thanh toán
           </span>
           <div className="text-3xl font-black tracking-tight mt-0.5">
-            {formatVND(totalAmount)}
+            {formatVND(finalAmount)}
           </div>
-          {order.discount > 0 && (
+          {pointsDiscount > 0 && (
             <div className="text-xs text-red-100 mt-1">
-              (Đã giảm trừ: {formatVND(order.discount)})
+              Đã trừ {formatVND(pointsDiscount)} do dùng {pointsUsed} điểm
             </div>
           )}
           {order.customers && (
@@ -96,6 +116,54 @@ export default function CheckoutModal({
             </div>
           )}
         </div>
+
+        {/* Đổi điểm thưởng */}
+        {canRedeem && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-bold text-amber-800">⭐ Điểm khách đang có</span>
+              <span className="font-black text-amber-900">{customerPoints} điểm</span>
+            </div>
+            <div className="text-[11px] text-amber-700">
+              1 điểm = {formatVND(redeemRate)} · Dùng tối đa {maxPoints} điểm (
+              {formatVND(maxPoints * redeemRate)})
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={0}
+                max={maxPoints}
+                inputMode="numeric"
+                value={pointsInput}
+                onChange={(e) => setPointsInput(e.target.value === '' ? 0 : Number(e.target.value))}
+                className="flex-1 px-3 py-2 rounded-xl bg-white border border-amber-300 text-sm font-bold text-slate-900 focus:outline-hidden focus:border-amber-500"
+                placeholder="Số điểm muốn dùng"
+              />
+              <button
+                type="button"
+                onClick={() => setPointsInput(maxPoints)}
+                className="px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold active:scale-95 shrink-0"
+              >
+                Dùng tối đa
+              </button>
+              {pointsUsed > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setPointsInput(0)}
+                  className="px-3 py-2 rounded-xl bg-white border border-amber-300 text-amber-800 text-xs font-bold active:scale-95 shrink-0"
+                >
+                  Bỏ
+                </button>
+              )}
+            </div>
+            {pointsDiscount > 0 && (
+              <div className="flex items-center justify-between text-xs font-bold text-emerald-700">
+                <span>Giảm do dùng điểm:</span>
+                <span>-{formatVND(pointsDiscount)}</span>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Payment Method Switcher */}
         <div className="grid grid-cols-2 gap-2">
@@ -130,7 +198,7 @@ export default function CheckoutModal({
         {paymentMethod === 'cash' && (
           <div className="animate-in fade-in">
             <Numpad
-              targetAmount={totalAmount}
+              targetAmount={finalAmount}
               cashReceived={cashReceived}
               onChangeCash={setCashReceived}
             />
@@ -170,7 +238,7 @@ export default function CheckoutModal({
                     {vietqrConfig.account_name}
                   </div>
                   <div className="text-[11px] text-slate-400">
-                    Số tiền: <strong className="text-red-600">{formatVND(totalAmount)}</strong>
+                    Số tiền: <strong className="text-red-600">{formatVND(finalAmount)}</strong>
                   </div>
                 </div>
               </div>
@@ -189,6 +257,8 @@ export default function CheckoutModal({
               onPrintBill({
                 ...order,
                 payment_method: paymentMethod,
+                discount: (Number(order.discount) || 0) + pointsDiscount,
+                total_amount: finalAmount,
               })
             }
             className="w-full py-2.5 px-4 rounded-2xl border border-slate-300 bg-white text-slate-800 font-bold text-sm flex items-center justify-center gap-2"
@@ -202,7 +272,7 @@ export default function CheckoutModal({
         <div className="pt-2">
           <button
             type="button"
-            disabled={isSubmitting || (paymentMethod === 'cash' && cashReceived < totalAmount)}
+            disabled={isSubmitting || (paymentMethod === 'cash' && cashReceived < finalAmount)}
             onClick={handleFinish}
             className="w-full py-3.5 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-black text-base shadow-lg shadow-emerald-600/30 active:scale-98 transition-all flex items-center justify-center gap-2"
           >
@@ -210,7 +280,7 @@ export default function CheckoutModal({
             <span>
               {isSubmitting
                 ? 'Đang xử lý...'
-                : `Xác Nhận Thu ${formatVND(totalAmount)}`}
+                : `Xác Nhận Thu ${formatVND(finalAmount)}`}
             </span>
           </button>
         </div>

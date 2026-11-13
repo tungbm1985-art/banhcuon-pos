@@ -81,11 +81,23 @@ CREATE TABLE IF NOT EXISTS orders (
   total_amount NUMERIC NOT NULL DEFAULT 0,
   payment_method TEXT DEFAULT 'cash' CHECK (payment_method IN ('cash', 'vietqr')),
   notes TEXT DEFAULT '',
+  points_earned INTEGER NOT NULL DEFAULT 0,
+  points_redeemed INTEGER NOT NULL DEFAULT 0,
+  cancelled_by TEXT,
+  cancelled_at TIMESTAMPTZ,
+  cancel_reason TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   completed_at TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at);
+
+-- Bổ sung cột cho các cài đặt đã tạo trước đó (chạy an toàn nhiều lần)
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS points_earned INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS points_redeemed INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS cancelled_by TEXT;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
 
 -- 5. ORDER ITEMS
 CREATE TABLE IF NOT EXISTS order_items (
@@ -306,6 +318,32 @@ BEGIN
     EXCEPTION WHEN unique_violation THEN
       RAISE NOTICE '⚠️  Chưa tạo được ràng buộc duy nhất cho mã đơn (có đơn mới bị trùng mã).';
     END;
+  END IF;
+END $$;
+
+-- ==============================================================================
+-- 6E. DATA MANAGEMENT (Nhật ký xoá dữ liệu năm cũ)
+-- ==============================================================================
+-- Chi tiết + lệnh chạy cho máy đang có dữ liệu: supabase_phase2_migration.sql
+CREATE TABLE IF NOT EXISTS data_deletion_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  deleted_at TIMESTAMPTZ DEFAULT NOW(),
+  deleted_by TEXT,
+  year INTEGER,
+  orders_deleted INTEGER DEFAULT 0,
+  expenses_deleted INTEGER DEFAULT 0,
+  notes TEXT DEFAULT ''
+);
+
+ALTER TABLE data_deletion_logs ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE tablename = 'data_deletion_logs'
+      AND policyname = 'Public full access to data_deletion_logs'
+  ) THEN
+    CREATE POLICY "Public full access to data_deletion_logs"
+      ON data_deletion_logs FOR ALL USING (true) WITH CHECK (true);
   END IF;
 END $$;
 
