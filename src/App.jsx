@@ -666,7 +666,7 @@ function MainApp() {
         )}
 
         {activeTab === 'customers' && (
-          <CustomerManager loyaltyConfig={settings?.loyalty_config} />
+          <CustomerManager loyaltyConfig={settings?.loyalty_config} isAdmin={isAdmin} />
         )}
 
         {activeTab === 'tables' && isManager && (
@@ -678,7 +678,7 @@ function MainApp() {
           />
         )}
 
-        {activeTab === 'expenses' && isManager && <ExpenseManager />}
+        {activeTab === 'expenses' && isManager && <ExpenseManager isAdmin={isAdmin} />}
 
         {activeTab === 'reports' && isManager && <ReportsView />}
 

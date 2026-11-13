@@ -21,7 +21,7 @@ const RANGE_PRESETS = [
   { id: 'all', label: 'Tất cả' },
 ];
 
-export default function ExpenseManager() {
+export default function ExpenseManager({ isAdmin = false }) {
   const { showAlert, showConfirm } = useDialog();
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -199,20 +199,26 @@ export default function ExpenseManager() {
             ))}
           </div>
 
-          <button
-            type="button"
-            onClick={() =>
-              exportDataFiles(
-                { expenses },
-                `chi-phi_${RANGE_PRESETS.find((p) => p.id === rangePreset)?.label || customStart || 'all'}`
-              )
-            }
-            disabled={expenses.length === 0}
-            className="self-start flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-xs font-bold whitespace-nowrap active:scale-95"
-          >
-            <FileSpreadsheet className="w-4 h-4" />
-            Xuất Excel
-          </button>
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => {
+                if (!isAdmin) {
+                  showAlert('Chỉ tài khoản Chủ quán mới được xuất dữ liệu.', { variant: 'danger' });
+                  return;
+                }
+                exportDataFiles(
+                  { expenses },
+                  `chi-phi_${RANGE_PRESETS.find((p) => p.id === rangePreset)?.label || customStart || 'all'}`
+                );
+              }}
+              disabled={expenses.length === 0}
+              className="self-start flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-xs font-bold whitespace-nowrap active:scale-95"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              Xuất Excel
+            </button>
+          )}
         </div>
 
         {/* Bộ lọc khoảng thời gian */}

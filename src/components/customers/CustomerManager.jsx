@@ -6,7 +6,7 @@ import { Search, UserPlus, Star, Phone, History, CreditCard, Edit, Check, FileSp
 import Modal from '../common/Modal';
 import { useDialog } from '../../contexts/DialogContext';
 
-export default function CustomerManager({ loyaltyConfig }) {
+export default function CustomerManager({ loyaltyConfig, isAdmin = false }) {
   const { showAlert } = useDialog();
   const [customers, setCustomers] = useState([]);
   const [search, setSearch] = useState('');
@@ -80,15 +80,23 @@ export default function CustomerManager({ loyaltyConfig }) {
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => exportDataFiles({ customers }, 'khach-hang')}
-            disabled={customers.length === 0}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-bold text-xs sm:text-sm active:scale-95 transition-all"
-          >
-            <FileSpreadsheet className="w-4 h-4" />
-            <span>Xuất Excel</span>
-          </button>
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => {
+                if (!isAdmin) {
+                  showAlert('Chỉ tài khoản Chủ quán mới được xuất dữ liệu.', { variant: 'danger' });
+                  return;
+                }
+                exportDataFiles({ customers }, 'khach-hang');
+              }}
+              disabled={customers.length === 0}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-bold text-xs sm:text-sm active:scale-95 transition-all"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>Xuất Excel</span>
+            </button>
+          )}
           <button
             onClick={() => setIsAddModalOpen(true)}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs sm:text-sm shadow-xs active:scale-95 transition-all"

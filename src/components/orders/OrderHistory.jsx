@@ -15,6 +15,7 @@ import {
   Lock,
 } from 'lucide-react';
 import Modal from '../common/Modal';
+import { useDialog } from '../../contexts/DialogContext';
 
 function localDateKey(iso) {
   const date = new Date(iso);
@@ -53,6 +54,7 @@ const CANCEL_REASONS = [
 ];
 
 export default function OrderHistory({ onReprintBill, onCancelOrder, isAdmin = false }) {
+  const { showAlert } = useDialog();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState('today');
@@ -160,15 +162,23 @@ export default function OrderHistory({ onReprintBill, onCancelOrder, isAdmin = f
           </p>
         </div>
         <div className="flex items-center gap-2 self-start">
-          <button
-            type="button"
-            onClick={() => exportDataFiles({ orders: filtered }, 'don-hang')}
-            disabled={filtered.length === 0}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-xs font-bold"
-          >
-            <FileSpreadsheet className="w-4 h-4" />
-            Xuất Excel
-          </button>
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => {
+                if (!isAdmin) {
+                  showAlert('Chỉ tài khoản Chủ quán mới được xuất dữ liệu.', { variant: 'danger' });
+                  return;
+                }
+                exportDataFiles({ orders: filtered }, 'don-hang');
+              }}
+              disabled={filtered.length === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-xs font-bold"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              Xuất Excel
+            </button>
+          )}
           <button
             type="button"
             onClick={load}

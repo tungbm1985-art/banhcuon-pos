@@ -147,6 +147,10 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
 
   // Sao lưu toàn bộ dữ liệu và tải về máy
   const handleBackupAll = async () => {
+    if (!isAdmin) {
+      showAlert('Chỉ tài khoản Chủ quán mới được sao lưu dữ liệu.', { variant: 'danger' });
+      return;
+    }
     setIsBackingUp(true);
     try {
       const backup = await backupAllData();
@@ -161,6 +165,10 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
 
   // Xuất toàn bộ dữ liệu ra Excel
   const handleExportAll = async () => {
+    if (!isAdmin) {
+      showAlert('Chỉ tài khoản Chủ quán mới được xuất dữ liệu.', { variant: 'danger' });
+      return;
+    }
     setIsExporting(true);
     try {
       const [orders, expenses, customers] = await Promise.all([
@@ -208,6 +216,10 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
 
   // Bắt buộc tải bản sao lưu dữ liệu hiện tại trước khi phục hồi.
   const handleBackupBeforeRestore = async () => {
+    if (!isAdmin) {
+      showAlert('Chỉ tài khoản Chủ quán mới được sao lưu dữ liệu.', { variant: 'danger' });
+      return;
+    }
     try {
       const backup = await backupAllData();
       const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
@@ -231,6 +243,10 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
   const handleRestoreData = async () => {
     setRestoreError('');
     setRestoreSuccess('');
+    if (!isAdmin) {
+      setRestoreError('Chỉ tài khoản Chủ quán mới được phục hồi dữ liệu.');
+      return;
+    }
     if (!restoreFile || !restoreSummary) {
       setRestoreError('Vui lòng chọn file sao lưu hợp lệ trước.');
       return;
@@ -293,6 +309,10 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
 
   // Tạo bản sao lưu phần dữ liệu sắp xoá và tải về
   const handleBackupYear = async () => {
+    if (!isAdmin) {
+      showAlert('Chỉ tài khoản Chủ quán mới được sao lưu dữ liệu.', { variant: 'danger' });
+      return;
+    }
     setIsBackingUpYear(true);
     try {
       const startDate = `${deleteYear}-01-01`;
@@ -319,6 +339,10 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
   const handleDeleteYear = async () => {
     setDeleteError('');
     setDeleteSuccess('');
+    if (!isAdmin) {
+      setDeleteError('Chỉ tài khoản Chủ quán mới được xoá dữ liệu.');
+      return;
+    }
     if (!yearSummary) {
       setDeleteError('Vui lòng bấm "Đối chiếu" để xem số liệu năm trước khi xoá.');
       return;
