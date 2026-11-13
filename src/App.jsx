@@ -66,6 +66,9 @@ function MainApp() {
   // Printing state
   const [printType, setPrintType] = useState(null); // 'bill' | 'kot'
   const [orderToPrint, setOrderToPrint] = useState(null);
+  // Khung in ẩn dùng để phát lệnh in RA NGOÀI frame của app (xem queuePrint).
+  const printFrameRef = useRef(null);
+  const printTimersRef = useRef([]);
 
   // Load all live data
   const loadData = async () => {
@@ -148,7 +151,7 @@ function MainApp() {
     settings?.print_config?.printer_enabled &&
     !!settings?.print_config?.printer_ip;
 
-  const printViaLAN = async (order, type) => {
+  const printViaLAN = async (order, type, html) => {
     const cfg = settings.print_config || {};
     const ip = cfg.printer_ip;
     const port = cfg.printer_port || 9100;
@@ -202,23 +205,68 @@ function MainApp() {
       }
     } catch {
       alert('Không kết nối được máy in LAN. Đã chuyển về in qua trình duyệt.');
-      doPrint();
+      await doPrint(html);
     }
   };
 
+  // Dọn khung in ẩn cũ (nếu có) cùng các timer đang chờ của nó.
+  const disposePrintFrame = () => {
+    printTimersRef.current.forEach((id) => clearTimeout(id));
+    printTimersRef.current = [];
+    const frame = printFrameRef.current;
+    if (frame) {
+      frame.onload = null;
+      if (frame.parentNode) frame.parentNode.removeChild(frame);
+      printFrameRef.current = null;
+    }
+  };
+
+  // Dọn khung in khi rời màn hình (tránh sót iframe ẩn).
+  useEffect(() => disposePrintFrame, []);
+
+  // Dọn sạch trạng thái in của app (nội dung phiếu đang gắn trong cây DOM React).
+  const clearPrintState = () => {
+    setPrintType(null);
+    setOrderToPrint(null);
+  };
+
+  // NGUYÊN NHÂN GỐC LỖI "ĐƠ GIAO DIỆN SAU KHI THANH TOÁN / BÁO BẾP":
+  // window.print() không chạy ở luồng nền. Nó mở một "nested event loop" và TẠM
+  // DỪNG (pause) execution context của CHÍNH FRAME gọi nó cho tới khi hộp thoại
+  // in đóng lại (Chromium: "Pausing is generally only used for nested event
+  // loops (ie. synchronous print)"; window.print nằm trong nhóm kPaused).
+  // Nếu máy in chưa bật / dịch vụ in không phản hồi thì hộp thoại in không bao
+  // giờ đóng → frame đó treo vĩnh viễn → toàn bộ app đơ, phải tải lại trang.
+  // Cả luồng TỰ ĐỘNG IN BILL sau khi thu tiền lẫn luồng IN PHIẾU BẾP (Báo bếp)
+  // đều gọi window.print() nên đều gây đơ; lệnh in treo của đơn trước còn làm
+  // hộp thoại thanh toán của đơn sau hiện chậm.
+  // CÁCH SỬA: không gọi window.print() trong frame của app nữa. Nội dung phiếu
+  // được chụp lại rồi đưa sang một <iframe> ẩn RIÊNG, lệnh in phát trong frame
+  // đó. Frame của app không bị tạm dừng nên dù môi trường in có treo thì giao
+  // diện vẫn dùng bình thường. Trạng thái in của app được dọn NGAY sau khi chụp
+  // xong phiếu, hoàn toàn KHÔNG phụ thuộc vào việc in đã xong hay chưa.
   const queuePrint = (order, type) => {
+    disposePrintFrame();
     setOrderToPrint(order);
     setPrintType(type);
-    setTimeout(async () => {
+
+    // Cho React vẽ xong nội dung phiếu rồi mới lấy HTML đem đi in.
+    const timer = setTimeout(() => {
+      const container = document.querySelector('.print-only');
+      const html = container ? buildPrintDocument(container.outerHTML) : '';
+
+      // Dọn state in ngay sau khi đã chụp xong nội dung phiếu.
+      clearPrintState();
+
+      if (!html) return;
+
       if (useLANPrint) {
-        await printViaLAN(order, type);
+        printViaLAN(order, type, html).catch((err) => console.error('Lỗi in LAN:', err));
       } else {
-        await doPrint();
+        doPrint(html).catch((err) => console.error('Lỗi in:', err));
       }
-      // Dọn state in sau khi in xong để lần sau không dùng lại dữ liệu cũ
-      setPrintType(null);
-      setOrderToPrint(null);
-    }, 150);
+    }, 120);
+    printTimersRef.current.push(timer);
   };
 
   // Send KOT to Kitchen
@@ -400,11 +448,7 @@ function MainApp() {
         { item_name: 'Nước Mía Tươi Tắc', quantity: 1, unit_price: 15000, notes: 'Ít đá' },
       ],
     };
-    setOrderToPrint(sampleOrder);
-    setPrintType('bill');
-    setTimeout(() => {
-      doPrint();
-    }, 150);
+    queuePrint(sampleOrder, 'bill');
   };
 
   const handleTestPrintKOT = () => {
@@ -420,76 +464,101 @@ function MainApp() {
       ],
     };
     sampleOrder.kitchenTickets = groupItemsByKitchenStation(sampleOrder.order_items);
-    setOrderToPrint(sampleOrder);
-    setPrintType('kot');
-    setTimeout(() => {
-      doPrint();
-    }, 150);
+    queuePrint(sampleOrder, 'kot');
   };
 
   const is80mm = settings?.print_config?.paper_size === '80mm';
 
-  // Safe print helper: detects whether a printer is available based on
-  // how quickly the print dialog closes after window.print() is invoked.
-  // Returns: 'printed' | 'not-installed' | 'not-found' | 'error'
-  const safePrint = () => {
-    return new Promise((resolve) => {
-      if (typeof window.print !== 'function') {
-        resolve('not-installed');
-        return;
-      }
+  // Gộp nội dung phiếu + toàn bộ CSS của app vào một tài liệu HTML độc lập để in
+  // trong iframe (giữ nguyên đúng giao diện phiếu in như trước đây).
+  const buildPrintDocument = (bodyHtml) => {
+    const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
+      .map((node) => node.outerHTML)
+      .join('\n');
+    return [
+      '<!doctype html><html><head><meta charset="utf-8">',
+      `<base href="${document.baseURI}">`,
+      styles,
+      '</head><body>',
+      bodyHtml,
+      '</body></html>',
+    ].join('');
+  };
 
-      let resolved = false;
-      const startedAt = Date.now();
+  // Phát lệnh in trong iframe ẩn để KHÔNG tạm dừng frame của app.
+  // Trả về: 'printed' | 'not-installed' | 'not-found' | 'error'
+  const printHtmlInFrame = (html) =>
+    new Promise((resolve) => {
+      disposePrintFrame();
 
-      const handleAfterPrint = () => {
-        window.removeEventListener('afterprint', handleAfterPrint);
-        if (resolved) return;
-        resolved = true;
-        const elapsed = Date.now() - startedAt;
-        if (elapsed < 500) {
-          // Print service likely not installed on the device
-          resolve('not-installed');
-        } else if (elapsed < 1500) {
-          // Print service exists but no printer found/connected
-          resolve('not-found');
-        } else {
-          // User interacted with the dialog; print command was sent
-          resolve('printed');
-        }
+      const frame = document.createElement('iframe');
+      frame.setAttribute('aria-hidden', 'true');
+      frame.setAttribute('tabindex', '-1');
+      frame.setAttribute('title', 'Khung in hoá đơn');
+      frame.style.position = 'fixed';
+      frame.style.right = '0';
+      frame.style.bottom = '0';
+      frame.style.width = '0';
+      frame.style.height = '0';
+      frame.style.border = '0';
+      printFrameRef.current = frame;
+
+      let done = false;
+      const finish = (status) => {
+        if (done) return;
+        done = true;
+        resolve(status);
       };
 
-      window.addEventListener('afterprint', handleAfterPrint);
-
-      // Safety fallback in case afterprint never fires
-      const safetyTimer = setTimeout(() => {
-        window.removeEventListener('afterprint', handleAfterPrint);
-        if (!resolved) {
-          resolved = true;
-          resolve('printed');
+      frame.onload = () => {
+        const win = frame.contentWindow;
+        const doc = frame.contentDocument;
+        if (!win || !doc) {
+          finish('error');
+          return;
         }
-      }, 30000);
 
-      try {
-        window.print();
-      } catch (e) {
-        window.removeEventListener('afterprint', handleAfterPrint);
-        clearTimeout(safetyTimer);
-        if (!resolved) {
-          resolved = true;
-          resolve('not-installed');
-        }
-      }
+        const startedAt = Date.now();
+        const handleAfterPrint = () => {
+          win.removeEventListener('afterprint', handleAfterPrint);
+          const elapsed = Date.now() - startedAt;
+          if (elapsed < 500) {
+            // Máy/dịch vụ in không có trên thiết bị
+            finish('not-installed');
+          } else if (elapsed < 1500) {
+            // Có dịch vụ in nhưng không tìm thấy máy in
+            finish('not-found');
+          } else {
+            finish('printed');
+          }
+        };
+        win.addEventListener('afterprint', handleAfterPrint);
+
+        waitForPrintImages(doc).then(() => {
+          try {
+            win.focus();
+            win.print();
+          } catch {
+            win.removeEventListener('afterprint', handleAfterPrint);
+            finish('not-installed');
+          }
+        });
+      };
+
+      frame.srcdoc = html;
+      document.body.appendChild(frame);
+
+      // Chốt an toàn: nếu hộp thoại in không bao giờ đóng thì promise vẫn kết
+      // thúc — app không bị treo vì frame của app không hề bị tạm dừng.
+      printTimersRef.current.push(setTimeout(() => finish('printed'), 30000));
     });
-  };
 
   // Đợi mọi ảnh trong khu vực in (đặc biệt là mã QR VietQR) tải xong TRƯỚC khi
   // mở hộp thoại in. Nếu không đợi, ảnh QR chưa kịp hiện nên phiếu in chỉ có
   // khung trống kèm chữ "VietQR Payment".
-  const waitForPrintImages = async () => {
-    const container = document.querySelector('.print-only');
-    if (!container) return;
-    const imgs = Array.from(container.querySelectorAll('img'));
+  const waitForPrintImages = async (root) => {
+    if (!root) return;
+    const imgs = Array.from(root.querySelectorAll('img'));
     await Promise.all(
       imgs.map((img) => {
         if (img.complete && img.naturalWidth > 0) return Promise.resolve();
@@ -507,16 +576,19 @@ function MainApp() {
     await new Promise((resolve) => setTimeout(resolve, 60));
   };
 
-  // Wrapper that shows appropriate warnings and keeps current behavior on success
-  const doPrint = async () => {
-    await waitForPrintImages();
-    const status = await safePrint();
+  // In phiếu trong iframe ẩn, kèm cảnh báo khi máy in chưa sẵn sàng.
+  // Hàm này KHÔNG được await trong luồng xử lý đơn/thanh toán: việc dọn state
+  // sau thanh toán/báo bếp không phụ thuộc vào kết quả in.
+  const doPrint = async (html) => {
+    if (!html) return 'error';
+    const status = await printHtmlInFrame(html);
     if (status === 'not-installed') {
       alert('Thiết bị chưa cài đặt máy in. Vui lòng cài đặt máy in trước khi in.');
     } else if (status === 'not-found') {
       alert('Không tìm thấy máy in. Vui lòng kiểm tra kết nối máy in và thử lại.');
     }
     // 'printed' → no alert, keep current behavior
+    return status;
   };
 
   // Check if current user is allowed to view the active tab
