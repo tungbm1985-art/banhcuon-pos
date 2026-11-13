@@ -167,7 +167,7 @@ export default function OrderHistory({ onReprintBill, onCancelOrder, isAdmin = f
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-xs font-bold"
           >
             <FileSpreadsheet className="w-4 h-4" />
-            Xuất Excel/CSV
+            Xuất Excel
           </button>
           <button
             type="button"

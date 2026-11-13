@@ -205,7 +205,7 @@ export default function ExpenseManager() {
             className="self-start flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-xs font-bold whitespace-nowrap active:scale-95"
           >
             <FileSpreadsheet className="w-4 h-4" />
-            Xuất Excel/CSV
+            Xuất Excel
           </button>
         </div>
 

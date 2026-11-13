@@ -1,5 +1,5 @@
 // ==============================================================================
-// XUẤT DỮ LIỆU RA FILE (Excel .xlsx nhiều trang + CSV từng bảng)
+// XUẤT DỮ LIỆU RA FILE (Excel .xlsx nhiều trang)
 // Mục 7 — dùng cho màn Đơn hàng / Kê khai chi phí / Khách hàng / Quản lý dữ liệu
 // ==============================================================================
 
@@ -164,27 +164,8 @@ export function downloadWorkbook(workbook, filename) {
   XLSX.writeFile(workbook, filename);
 }
 
-function triggerDownload(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-export function downloadCsv(rows, filename) {
-  if (!Array.isArray(rows) || rows.length === 0) return;
-  const sheet = XLSX.utils.json_to_sheet(rows);
-  const csv = XLSX.utils.sheet_to_csv(sheet);
-  // Thêm BOM để Excel đọc đúng tiếng Việt
-  triggerDownload(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' }), filename);
-}
-
 /**
- * Xuất Excel + CSV cho 1 màn hình.
+ * Xuất file Excel (.xlsx) cho 1 màn hình.
  * @param {{orders?: Array, expenses?: Array, customers?: Array}} data
  * @param {string} baseName - tên file không kèm phần mở rộng
  */
@@ -192,18 +173,4 @@ export function exportDataFiles(data, baseName) {
   const stamp = getVnToday();
   const wb = buildExportWorkbook(data);
   downloadWorkbook(wb, `${baseName}_${stamp}.xlsx`);
-
-  if (Array.isArray(data.orders) && data.orders.length) {
-    downloadCsv(data.orders.map(orderRow), `${baseName}_don-hang_${stamp}.csv`);
-    const itemRows = orderItemsRows(data.orders);
-    if (itemRows.length) {
-      downloadCsv(itemRows, `${baseName}_chi-tiet-mon_${stamp}.csv`);
-    }
-  }
-  if (Array.isArray(data.expenses) && data.expenses.length) {
-    downloadCsv(expenseRows(data.expenses), `${baseName}_chi-phi_${stamp}.csv`);
-  }
-  if (Array.isArray(data.customers) && data.customers.length) {
-    downloadCsv(customerRows(data.customers), `${baseName}_khach-hang_${stamp}.csv`);
-  }
 }

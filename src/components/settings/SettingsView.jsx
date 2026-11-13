@@ -157,7 +157,7 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
     }
   };
 
-  // Xuất toàn bộ dữ liệu ra Excel/CSV
+  // Xuất toàn bộ dữ liệu ra Excel
   const handleExportAll = async () => {
     setIsExporting(true);
     try {
@@ -1149,7 +1149,7 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
               Sao lưu &amp; xuất dữ liệu
             </h4>
             <p className="text-xs text-slate-500">
-              Tải một bản sao toàn bộ dữ liệu về máy để cất giữ, hoặc xuất ra Excel/CSV để tự làm báo cáo.
+              Tải một bản sao toàn bộ dữ liệu về máy để cất giữ, hoặc xuất ra Excel để tự làm báo cáo.
             </p>
             <div className="flex flex-wrap gap-2">
               <button
@@ -1168,7 +1168,7 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
                 className="py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold active:scale-95 flex items-center gap-1.5"
               >
                 <FileSpreadsheet className="w-4 h-4" />
-                {isExporting ? 'Đang xuất...' : 'Xuất Excel/CSV toàn bộ'}
+                {isExporting ? 'Đang xuất...' : 'Xuất Excel toàn bộ'}
               </button>
               <button
                 type="button"

@@ -85,7 +85,7 @@ export default function CustomerManager({ loyaltyConfig }) {
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-bold text-xs sm:text-sm active:scale-95 transition-all"
           >
             <FileSpreadsheet className="w-4 h-4" />
-            <span>Xuất Excel/CSV</span>
+            <span>Xuất Excel</span>
           </button>
           <button
             onClick={() => setIsAddModalOpen(true)}
