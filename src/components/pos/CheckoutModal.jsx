@@ -17,6 +17,8 @@ export default function CheckoutModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
   const [pointsInput, setPointsInput] = useState(0);
+  // Lựa chọn tường minh: "Để tích luỹ" (mặc định) hay "Dùng điểm".
+  const [usePoints, setUsePoints] = useState(false);
 
   const totalAmount = order?.total_amount || 0;
   const vietqrConfig = settings?.vietqr_config || {};
@@ -25,10 +27,12 @@ export default function CheckoutModal({
   // Đổi điểm thưởng ngay khi thanh toán
   const customerPoints = Number(order?.customers?.points) || 0;
   const redeemRate = Number(loyaltyConfig.redeem_rate) || 0;
-  const canRedeem = !!loyaltyConfig.enabled && redeemRate > 0 && customerPoints > 0;
+  // Chỉ hiện khu điểm khi đơn có gắn khách hàng và khách có điểm > 0.
+  const showPointsBlock = !!order?.customers && !!loyaltyConfig.enabled && redeemRate > 0 && customerPoints > 0;
   const maxPointsByAmount = redeemRate > 0 ? Math.floor(totalAmount / redeemRate) : 0;
   const maxPoints = Math.min(customerPoints, maxPointsByAmount);
-  const pointsUsed = Math.min(Math.max(0, Number(pointsInput) || 0), maxPoints);
+  // Không tự trừ điểm: chỉ trừ khi nhân viên chọn "Dùng điểm".
+  const pointsUsed = usePoints ? Math.min(Math.max(0, Number(pointsInput) || 0), maxPoints) : 0;
   const pointsDiscount = pointsUsed * redeemRate;
   const finalAmount = Math.max(0, totalAmount - pointsDiscount);
 
@@ -36,6 +40,7 @@ export default function CheckoutModal({
     if (order) {
       setPaymentMethod('vietqr');
       setPointsInput(0);
+      setUsePoints(false);
       setCashReceived(order.total_amount || 0);
     }
   }, [order, isOpen]);
@@ -105,11 +110,6 @@ export default function CheckoutModal({
           <div className="text-3xl font-black tracking-tight mt-0.5">
             {formatVND(finalAmount)}
           </div>
-          {pointsDiscount > 0 && (
-            <div className="text-xs text-red-100 mt-1">
-              Đã trừ {formatVND(pointsDiscount)} do dùng {pointsUsed} điểm
-            </div>
-          )}
           {order.customers && (
             <div className="inline-block mt-2 bg-white/20 backdrop-blur-xs px-2.5 py-0.5 rounded-full text-xs font-semibold">
               ⭐ Tích lũy: +{pointsEarned} điểm cho {order.customers.full_name}
@@ -117,49 +117,96 @@ export default function CheckoutModal({
           )}
         </div>
 
-        {/* Đổi điểm thưởng */}
-        {canRedeem && (
-          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <span className="font-bold text-amber-800">⭐ Điểm khách đang có</span>
-              <span className="font-black text-amber-900">{customerPoints} điểm</span>
+        {/* Tổng kết giảm do dùng điểm — hiện rõ trước khi bấm Xác Nhận Thu */}
+        {pointsDiscount > 0 && (
+          <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-2xl px-3 py-2">
+            <span className="text-xs font-bold text-emerald-800">
+              Giảm từ điểm ({pointsUsed} điểm)
+            </span>
+            <span className="text-sm font-black text-emerald-700">
+              −{formatVND(pointsDiscount)}
+            </span>
+          </div>
+        )}
+
+        {/* ĐIỂM THƯỞNG — chọn rõ "Dùng điểm" hay "Để tích luỹ" */}
+        {showPointsBlock && (
+          <div className="bg-amber-50 border border-amber-300 rounded-2xl p-3 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-black text-amber-900 uppercase tracking-wide">
+                ⭐ Điểm thưởng
+              </span>
+              <span className="text-sm font-black text-amber-900">{customerPoints} điểm</span>
             </div>
             <div className="text-[11px] text-amber-700">
-              1 điểm = {formatVND(redeemRate)} · Dùng tối đa {maxPoints} điểm (
-              {formatVND(maxPoints * redeemRate)})
+              1 điểm = {formatVND(redeemRate)} · {customerPoints} điểm tương đương{' '}
+              {formatVND(customerPoints * redeemRate)}
             </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                min={0}
-                max={maxPoints}
-                inputMode="numeric"
-                value={pointsInput}
-                onChange={(e) => setPointsInput(e.target.value === '' ? 0 : Number(e.target.value))}
-                className="flex-1 px-3 py-2 rounded-xl bg-white border border-amber-300 text-sm font-bold text-slate-900 focus:outline-hidden focus:border-amber-500"
-                placeholder="Số điểm muốn dùng"
-              />
-              <button
-                type="button"
-                onClick={() => setPointsInput(maxPoints)}
-                className="px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold active:scale-95 shrink-0"
+
+            <div className="grid grid-cols-2 gap-2">
+              <label
+                className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 cursor-pointer transition-all ${
+                  !usePoints ? 'border-amber-500 bg-white text-amber-900' : 'border-amber-200 bg-amber-50/60 text-amber-700'
+                }`}
               >
-                Dùng tối đa
-              </button>
-              {pointsUsed > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setPointsInput(0)}
-                  className="px-3 py-2 rounded-xl bg-white border border-amber-300 text-amber-800 text-xs font-bold active:scale-95 shrink-0"
-                >
-                  Bỏ
-                </button>
-              )}
+                <input
+                  type="radio"
+                  name="point-choice"
+                  checked={!usePoints}
+                  onChange={() => {
+                    setUsePoints(false);
+                    setPointsInput(0);
+                  }}
+                  className="w-4 h-4 text-amber-600 focus:ring-amber-500"
+                />
+                <span className="text-sm font-bold">Để tích luỹ</span>
+              </label>
+              <label
+                className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 cursor-pointer transition-all ${
+                  usePoints ? 'border-amber-500 bg-white text-amber-900' : 'border-amber-200 bg-amber-50/60 text-amber-700'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="point-choice"
+                  checked={usePoints}
+                  onChange={() => setUsePoints(true)}
+                  className="w-4 h-4 text-amber-600 focus:ring-amber-500"
+                />
+                <span className="text-sm font-bold">Dùng điểm</span>
+              </label>
             </div>
-            {pointsDiscount > 0 && (
-              <div className="flex items-center justify-between text-xs font-bold text-emerald-700">
-                <span>Giảm do dùng điểm:</span>
-                <span>-{formatVND(pointsDiscount)}</span>
+
+            {!usePoints && (
+              <div className="text-[11px] text-amber-700">
+                Khách sẽ không bị trừ điểm, chỉ được cộng thêm điểm mới theo tiền đơn.
+              </div>
+            )}
+
+            {usePoints && (
+              <div className="space-y-2">
+                <div className="text-[11px] text-amber-700">
+                  Được dùng tối đa {maxPoints} điểm ({formatVND(maxPoints * redeemRate)})
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={0}
+                    max={maxPoints}
+                    inputMode="numeric"
+                    value={pointsInput}
+                    onChange={(e) => setPointsInput(e.target.value === '' ? 0 : Number(e.target.value))}
+                    className="flex-1 px-3 py-2 rounded-xl bg-white border border-amber-300 text-sm font-bold text-slate-900 focus:outline-hidden focus:border-amber-500"
+                    placeholder="Số điểm muốn dùng"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setPointsInput(maxPoints)}
+                    className="px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold active:scale-95 shrink-0"
+                  >
+                    Dùng tối đa
+                  </button>
+                </div>
               </div>
             )}
           </div>
