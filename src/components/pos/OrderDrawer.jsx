@@ -577,7 +577,13 @@ export default function OrderDrawer({
               className="py-3 px-3 rounded-2xl bg-slate-800 hover:bg-slate-900 disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold text-xs sm:text-sm active:scale-95 transition-all flex items-center justify-center gap-1.5"
             >
               <ChefHat className="w-4 h-4 text-amber-400" />
-              <span>{sendingKot ? 'Đang gửi bếp...' : 'Báo Bếp (KOT)'}</span>
+              <span className="text-center leading-tight">
+                {sendingKot
+                  ? 'Đang gửi bếp...'
+                  : activeOrder
+                    ? 'Báo Bếp (KOT)'
+                    : 'Tạo Đơn - Báo Bếp (KOT)'}
+              </span>
             </button>
 
             {/* Checkout */}
