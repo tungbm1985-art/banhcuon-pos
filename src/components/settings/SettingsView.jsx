@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSettings } from '../../contexts/SettingsContext';
 import { useAuth } from '../../contexts/AuthContext';
 import {
@@ -19,6 +19,9 @@ import {
   deleteYearData,
   getDataDeletionLogs,
   verifyAdminPassword,
+  validateBackupFile,
+  summarizeBackup,
+  restoreAllData,
   getOrdersHistory,
   getExpenses,
   getCustomers,
@@ -44,6 +47,7 @@ import {
   Trash2,
   Lock,
   ClipboardList,
+  Upload,
 } from 'lucide-react';
 
 const COMMON_BANKS = [
@@ -105,6 +109,16 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deletionLogs, setDeletionLogs] = useState([]);
 
+  // Phục hồi từ file sao lưu (Mục 6 đợt 3)
+  const restoreInputRef = useRef(null);
+  const [restoreFile, setRestoreFile] = useState(null); // { name, data }
+  const [restoreSummary, setRestoreSummary] = useState(null);
+  const [restoreBackupFile, setRestoreBackupFile] = useState(null); // tên file sao lưu hiện tại đã tải
+  const [restorePassword, setRestorePassword] = useState('');
+  const [restoreError, setRestoreError] = useState('');
+  const [restoreSuccess, setRestoreSuccess] = useState('');
+  const [isRestoring, setIsRestoring] = useState(false);
+
   const loadDeletionLogs = async () => {
     try {
       setDeletionLogs(await getDataDeletionLogs());
@@ -157,6 +171,106 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
       alert('Lỗi xuất dữ liệu: ' + err.message);
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  // Chọn file sao lưu: đọc và kiểm tra định dạng trước, sai thì báo lỗi và không đổi gì.
+  const handlePickRestoreFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // cho phép chọn lại cùng một file
+    if (!file) return;
+
+    setRestoreError('');
+    setRestoreSuccess('');
+    setRestoreSummary(null);
+    setRestoreBackupFile(null);
+    setRestorePassword('');
+
+    try {
+      const text = await file.text();
+      let parsed;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        throw new Error('File không đúng định dạng sao lưu (không đọc được nội dung JSON).');
+      }
+      const check = validateBackupFile(parsed);
+      if (!check.ok) throw new Error(check.error);
+      setRestoreFile({ name: file.name, data: parsed });
+      setRestoreSummary(summarizeBackup(parsed));
+    } catch (err) {
+      setRestoreFile(null);
+      setRestoreError(err.message);
+    }
+  };
+
+  // Bắt buộc tải bản sao lưu dữ liệu hiện tại trước khi phục hồi.
+  const handleBackupBeforeRestore = async () => {
+    try {
+      const backup = await backupAllData();
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      const name = `sao-luu-truoc-phuc-hoi_${stamp}.json`;
+      downloadJson(backup, name);
+      setRestoreBackupFile(name);
+      setRestoreError('');
+    } catch (err) {
+      alert('Lỗi sao lưu dữ liệu hiện tại: ' + err.message);
+    }
+  };
+
+  const resetRestoreState = () => {
+    setRestoreFile(null);
+    setRestoreSummary(null);
+    setRestoreBackupFile(null);
+    setRestorePassword('');
+    setRestoreError('');
+  };
+
+  const handleRestoreData = async () => {
+    setRestoreError('');
+    setRestoreSuccess('');
+    if (!restoreFile || !restoreSummary) {
+      setRestoreError('Vui lòng chọn file sao lưu hợp lệ trước.');
+      return;
+    }
+    if (!restoreBackupFile) {
+      setRestoreError('Bắt buộc tải bản sao lưu dữ liệu hiện tại trước khi phục hồi.');
+      return;
+    }
+    if (!restorePassword) {
+      setRestoreError('Vui lòng nhập mật khẩu tài khoản chủ quán.');
+      return;
+    }
+    if (
+      !confirm(
+        'XÁC NHẬN PHỤC HỒI: toàn bộ dữ liệu hiện tại sẽ bị thay thế bằng dữ liệu trong file sao lưu. Thao tác này không thể hoàn tác.'
+      )
+    ) {
+      return;
+    }
+
+    setIsRestoring(true);
+    try {
+      const ok = await verifyAdminPassword(restorePassword);
+      if (!ok) {
+        setRestoreError('Mật khẩu chủ quán không đúng. Không phục hồi.');
+        setIsRestoring(false);
+        return;
+      }
+      const result = await restoreAllData(restoreFile.data, {
+        restoredBy: currentUser?.full_name || 'admin',
+      });
+      setRestoreSuccess(
+        `Đã phục hồi ${result.orders} đơn hàng, ${result.expenses} chi phí, ${result.customers} khách hàng, ${result.menu_items} món, ${result.tables} bàn. Đang tải lại dữ liệu...`
+      );
+      resetRestoreState();
+      await loadDeletionLogs();
+      await refreshSettings();
+      setTimeout(() => window.location.reload(), 1800);
+    } catch (err) {
+      setRestoreError('Lỗi phục hồi dữ liệu: ' + err.message);
+    } finally {
+      setIsRestoring(false);
     }
   };
 
@@ -1056,7 +1170,132 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
                 <FileSpreadsheet className="w-4 h-4" />
                 {isExporting ? 'Đang xuất...' : 'Xuất Excel/CSV toàn bộ'}
               </button>
+              <button
+                type="button"
+                onClick={() => restoreInputRef.current?.click()}
+                className="py-2.5 px-4 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold active:scale-95 flex items-center gap-1.5"
+              >
+                <Upload className="w-4 h-4" />
+                Phục hồi từ file sao lưu
+              </button>
+              <input
+                ref={restoreInputRef}
+                type="file"
+                accept=".json,application/json"
+                onChange={handlePickRestoreFile}
+                className="hidden"
+              />
             </div>
+          </div>
+
+          {/* 7.1b Phục hồi từ file sao lưu */}
+          <div className="rounded-2xl border border-slate-200 p-3.5 space-y-3">
+            <h4 className="text-xs font-black text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
+              <Upload className="w-4 h-4" />
+              Phục hồi từ file sao lưu
+            </h4>
+            <p className="text-xs text-slate-500">
+              Nạp lại toàn bộ dữ liệu nghiệp vụ (đơn hàng, chi phí, khách hàng, thực đơn, bàn, cài đặt quán)
+              từ file sao lưu do nút &quot;Sao lưu toàn bộ dữ liệu&quot; tạo ra. Tài khoản đăng nhập giữ nguyên.
+            </p>
+
+            {restoreError && (
+              <div className="rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-semibold px-3 py-2">
+                {restoreError}
+              </div>
+            )}
+            {restoreSuccess && (
+              <div className="rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold px-3 py-2">
+                {restoreSuccess}
+              </div>
+            )}
+
+            {!restoreSummary && (
+              <button
+                type="button"
+                onClick={() => restoreInputRef.current?.click()}
+                className="py-2.5 px-4 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 text-xs font-bold active:scale-95 flex items-center gap-1.5"
+              >
+                <Upload className="w-4 h-4" />
+                Chọn file sao lưu (.json)
+              </button>
+            )}
+
+            {restoreSummary && (
+              <div className="rounded-2xl border-2 border-rose-300 bg-rose-50 p-3.5 space-y-3">
+                <div className="rounded-xl bg-white border border-rose-200 px-3 py-2 text-xs text-slate-700 space-y-0.5">
+                  <div>
+                    File: <strong>{restoreFile?.name}</strong>
+                  </div>
+                  <div>
+                    Ngày tạo bản sao lưu:{' '}
+                    <strong>
+                      {restoreSummary.exported_at ? formatDateTime(restoreSummary.exported_at) : 'Không có trong file'}
+                    </strong>
+                  </div>
+                  <div className="pt-1 font-bold text-slate-800">Nội dung sắp phục hồi:</div>
+                  <div>· {restoreSummary.orders} đơn hàng ({restoreSummary.order_items} chi tiết món)</div>
+                  <div>· {restoreSummary.expenses} khoản chi phí</div>
+                  <div>· {restoreSummary.customers} khách hàng (kèm điểm thưởng)</div>
+                  <div>· {restoreSummary.menu_items} món trong thực đơn · {restoreSummary.tables} bàn</div>
+                </div>
+
+                <div className="rounded-xl bg-red-600 text-white p-3 text-xs font-bold leading-relaxed">
+                  Phục hồi sẽ THAY THẾ TOÀN BỘ dữ liệu hiện tại bằng dữ liệu trong file sao lưu. Mọi đơn hàng,
+                  chi phí, thay đổi phát sinh sau ngày sao lưu sẽ BỊ MẤT.
+                </div>
+
+                <div className="space-y-1.5">
+                  <button
+                    type="button"
+                    onClick={handleBackupBeforeRestore}
+                    className="py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-black text-white text-xs font-bold active:scale-95 flex items-center gap-1.5"
+                  >
+                    <HardDriveDownload className="w-4 h-4" />
+                    1. Tải bản sao lưu dữ liệu hiện tại (bắt buộc)
+                  </button>
+                  {restoreBackupFile && (
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-700">
+                      <CheckCircle2 className="w-4 h-4" />
+                      Đã tải bản sao lưu hiện tại: {restoreBackupFile}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1 flex items-center gap-1.5">
+                    <Lock className="w-3.5 h-3.5" />
+                    2. Mật khẩu tài khoản chủ quán (bắt buộc để phục hồi)
+                  </label>
+                  <input
+                    type="password"
+                    value={restorePassword}
+                    onChange={(e) => setRestorePassword(e.target.value)}
+                    placeholder="Nhập mật khẩu chủ quán"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold focus:outline-hidden focus:border-rose-500"
+                  />
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={handleRestoreData}
+                    disabled={isRestoring}
+                    className="py-2.5 px-4 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-bold active:scale-95 flex items-center gap-1.5"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    {isRestoring ? 'Đang phục hồi...' : '3. Phục hồi dữ liệu ngay'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={resetRestoreState}
+                    className="py-2.5 px-4 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold active:scale-95"
+                  >
+                    Huỷ
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* 7.2 Xoá dữ liệu năm cũ */}
@@ -1162,21 +1401,28 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
             </button>
           </div>
 
-          {/* 7.3 Nhật ký xoá dữ liệu */}
+          {/* 7.3 Nhật ký xoá / phục hồi dữ liệu */}
           <div className="rounded-2xl border border-slate-200 p-3.5 space-y-2">
             <h4 className="text-xs font-black text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
               <ClipboardList className="w-4 h-4" />
-              Nhật ký xoá dữ liệu
+              Nhật ký xoá / phục hồi dữ liệu
             </h4>
             {deletionLogs.length === 0 ? (
-              <p className="text-xs text-slate-400">Chưa có lần xoá dữ liệu nào.</p>
+              <p className="text-xs text-slate-400">Chưa có lần xoá hay phục hồi dữ liệu nào.</p>
             ) : (
               <div className="divide-y divide-slate-100">
                 {deletionLogs.slice(0, 10).map((log, idx) => (
                   <div key={log.id || idx} className="py-2 text-xs text-slate-600">
                     <span className="font-bold text-slate-800">{formatDateTime(log.deleted_at)}</span> ·{' '}
-                    {log.deleted_by || 'admin'} · Năm <strong>{log.year}</strong> · xoá{' '}
-                    {log.orders_deleted} đơn hàng, {log.expenses_deleted} chi phí
+                    {log.deleted_by || 'admin'} ·{' '}
+                    {log.year ? (
+                      <>
+                        Năm <strong>{log.year}</strong> · xoá {log.orders_deleted} đơn hàng,{' '}
+                        {log.expenses_deleted} chi phí
+                      </>
+                    ) : (
+                      <span className="text-amber-700 font-semibold">{log.notes || 'Phục hồi dữ liệu'}</span>
+                    )}
                   </div>
                 ))}
               </div>

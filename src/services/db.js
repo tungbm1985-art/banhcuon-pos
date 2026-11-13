@@ -1731,3 +1731,141 @@ export async function getDataDeletionLogs() {
   }
   return getLocalItem(STORAGE_KEYS.DELETION_LOGS, []);
 }
+
+// ==============================================================================
+// 12. PHỤC HỒI DỮ LIỆU TỪ FILE SAO LƯU (Mục 6 đợt 3)
+// ==============================================================================
+
+// Các bảng nghiệp vụ được phục hồi. KHÔNG gồm 'staff' — tài khoản đăng nhập
+// của chủ quán/nhân viên luôn giữ nguyên, không bị đè.
+export const RESTORE_TABLES = [
+  'tables',
+  'menu_items',
+  'customers',
+  'orders',
+  'order_items',
+  'expenses',
+  'system_settings',
+];
+
+// Nạp bảng cha trước để khoá ngoại hợp lệ (orders -> tables/customers,
+// order_items -> orders/menu_items).
+const RESTORE_INSERT_ORDER = [
+  'tables',
+  'menu_items',
+  'customers',
+  'orders',
+  'order_items',
+  'expenses',
+  'system_settings',
+];
+
+// Xoá bảng con trước để không vướng khoá ngoại.
+const RESTORE_DELETE_ORDER = [
+  'order_items',
+  'orders',
+  'menu_items',
+  'customers',
+  'tables',
+  'expenses',
+  'system_settings',
+];
+
+// Kiểm tra file sao lưu có đúng định dạng và đủ bảng cần phục hồi không.
+// Thiếu bất kỳ bảng nào => coi là không hợp lệ, không phục hồi.
+export function validateBackupFile(backup) {
+  if (!backup || typeof backup !== 'object' || Array.isArray(backup)) {
+    return {
+      ok: false,
+      error: 'File không đúng định dạng sao lưu (không phải file JSON do chức năng Sao lưu tạo ra).',
+    };
+  }
+  const missing = RESTORE_TABLES.filter((t) => !Array.isArray(backup[t]));
+  if (missing.length > 0) {
+    return { ok: false, error: `File sao lưu thiếu bảng dữ liệu: ${missing.join(', ')}. Không phục hồi.` };
+  }
+  return { ok: true };
+}
+
+// Số liệu tóm tắt nội dung file sao lưu để đối chiếu trước khi phục hồi.
+export function summarizeBackup(backup) {
+  const rows = (t) => (Array.isArray(backup?.[t]) ? backup[t].length : 0);
+  return {
+    exported_at: backup?.exported_at || null,
+    tables: rows('tables'),
+    orders: rows('orders'),
+    order_items: rows('order_items'),
+    expenses: rows('expenses'),
+    customers: rows('customers'),
+    menu_items: rows('menu_items'),
+  };
+}
+
+const RESTORE_CHUNK_SIZE = 500;
+
+// Phục hồi: THAY THẾ toàn bộ dữ liệu nghiệp vụ hiện tại bằng dữ liệu trong file.
+// Không phục hồi một phần; không đụng tới bảng staff.
+export async function restoreAllData(backup, { restoredBy = 'admin' } = {}) {
+  const check = validateBackupFile(backup);
+  if (!check.ok) throw new Error(check.error);
+
+  const summary = summarizeBackup(backup);
+  const supabase = getSupabase();
+
+  if (supabase) {
+    for (const table of RESTORE_DELETE_ORDER) {
+      const column = table === 'system_settings' ? 'key' : 'id';
+      const { error } = await supabase.from(table).delete().not(column, 'is', null);
+      if (error) throw new Error(`Lỗi xoá dữ liệu bảng "${table}": ${error.message}`);
+    }
+
+    for (const table of RESTORE_INSERT_ORDER) {
+      const rows = backup[table] || [];
+      for (let i = 0; i < rows.length; i += RESTORE_CHUNK_SIZE) {
+        const chunk = rows.slice(i, i + RESTORE_CHUNK_SIZE);
+        const { error } = await supabase.from(table).insert(chunk);
+        if (error) throw new Error(`Lỗi nạp dữ liệu bảng "${table}": ${error.message}`);
+      }
+    }
+  } else {
+    setLocalItem(STORAGE_KEYS.TABLES, backup.tables || []);
+    setLocalItem(STORAGE_KEYS.MENU, backup.menu_items || []);
+    setLocalItem(STORAGE_KEYS.CUSTOMERS, backup.customers || []);
+    setLocalItem(STORAGE_KEYS.ORDERS, backup.orders || []);
+    setLocalItem(STORAGE_KEYS.ORDER_ITEMS, backup.order_items || []);
+    setLocalItem(STORAGE_KEYS.EXPENSES, backup.expenses || []);
+    const settingsMap = {};
+    (backup.system_settings || []).forEach((row) => {
+      if (row && row.key) settingsMap[row.key] = row.value;
+    });
+    setLocalItem(STORAGE_KEYS.SETTINGS, settingsMap);
+    notifyLocalListeners('tables', { eventType: 'RESET' });
+    notifyLocalListeners('orders', { eventType: 'RESET' });
+  }
+
+  const notes =
+    `Phục hồi dữ liệu từ bản sao lưu` +
+    (summary.exported_at ? ` ngày ${summary.exported_at}` : '') +
+    ` — nạp lại ${summary.orders} đơn, ${summary.order_items} chi tiết món, ` +
+    `${summary.expenses} chi phí, ${summary.customers} khách, ${summary.menu_items} món, ${summary.tables} bàn.`;
+
+  const log = {
+    deleted_at: new Date().toISOString(),
+    deleted_by: restoredBy || 'admin',
+    year: null,
+    orders_deleted: summary.orders,
+    expenses_deleted: summary.expenses,
+    notes,
+  };
+
+  if (supabase) {
+    const { error } = await supabase.from('data_deletion_logs').insert([log]);
+    if (error) console.warn('Không ghi được nhật ký phục hồi:', error.message);
+  } else {
+    const logs = getLocalItem(STORAGE_KEYS.DELETION_LOGS, []);
+    logs.unshift({ id: generateUUID(), ...log });
+    setLocalItem(STORAGE_KEYS.DELETION_LOGS, logs);
+  }
+
+  return { ...summary, log };
+}
