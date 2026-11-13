@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSettings } from '../../contexts/SettingsContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { useDialog } from '../../contexts/DialogContext';
 import {
   saveSupabaseCredentials,
   clearSupabaseCredentials,
@@ -94,6 +95,7 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
 
   // ---- Quản lý dữ liệu (Mục 6) ----
   const { currentUser, isAdmin } = useAuth();
+  const { showAlert, showConfirm } = useDialog();
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const currentYear = new Date().getFullYear();
@@ -151,7 +153,7 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
       const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
       downloadJson(backup, `sao-luu-toan-bo_${stamp}.json`);
     } catch (err) {
-      alert('Lỗi sao lưu dữ liệu: ' + err.message);
+      showAlert('Lỗi sao lưu dữ liệu: ' + err.message, { variant: 'danger' });
     } finally {
       setIsBackingUp(false);
     }
@@ -168,7 +170,7 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
       ]);
       exportDataFiles({ orders, expenses, customers }, 'toan-bo-du-lieu');
     } catch (err) {
-      alert('Lỗi xuất dữ liệu: ' + err.message);
+      showAlert('Lỗi xuất dữ liệu: ' + err.message, { variant: 'danger' });
     } finally {
       setIsExporting(false);
     }
@@ -214,7 +216,7 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
       setRestoreBackupFile(name);
       setRestoreError('');
     } catch (err) {
-      alert('Lỗi sao lưu dữ liệu hiện tại: ' + err.message);
+      showAlert('Lỗi sao lưu dữ liệu hiện tại: ' + err.message, { variant: 'danger' });
     }
   };
 
@@ -241,11 +243,11 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
       setRestoreError('Vui lòng nhập mật khẩu tài khoản chủ quán.');
       return;
     }
-    if (
-      !confirm(
-        'XÁC NHẬN PHỤC HỒI: toàn bộ dữ liệu hiện tại sẽ bị thay thế bằng dữ liệu trong file sao lưu. Thao tác này không thể hoàn tác.'
-      )
-    ) {
+    const confirmed = await showConfirm(
+      'XÁC NHẬN PHỤC HỒI: toàn bộ dữ liệu hiện tại sẽ bị thay thế bằng dữ liệu trong file sao lưu. Thao tác này không thể hoàn tác.',
+      { variant: 'danger', title: 'Xác nhận phục hồi dữ liệu', confirmText: 'Đồng ý phục hồi' }
+    );
+    if (!confirmed) {
       return;
     }
 
@@ -283,7 +285,7 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
     try {
       setYearSummary(await getYearDataSummary(deleteYear));
     } catch (err) {
-      alert('Lỗi đối chiếu dữ liệu: ' + err.message);
+      showAlert('Lỗi đối chiếu dữ liệu: ' + err.message, { variant: 'danger' });
     } finally {
       setIsCheckingYear(false);
     }
@@ -308,7 +310,7 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
       downloadJson(payload, `sao-luu-nam-${deleteYear}.json`);
       setYearBackupFile(`sao-luu-nam-${deleteYear}.json`);
     } catch (err) {
-      alert('Lỗi tạo bản sao lưu: ' + err.message);
+      showAlert('Lỗi tạo bản sao lưu: ' + err.message, { variant: 'danger' });
     } finally {
       setIsBackingUpYear(false);
     }
@@ -329,7 +331,11 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
       setDeleteError('Vui lòng nhập mật khẩu tài khoản chủ quán.');
       return;
     }
-    if (!confirm(`Xoá toàn bộ đơn hàng và chi phí năm ${deleteYear}? Thao tác này không thể hoàn tác.`)) {
+    const confirmed = await showConfirm(
+      `Xoá toàn bộ đơn hàng và chi phí năm ${deleteYear}? Thao tác này không thể hoàn tác.`,
+      { variant: 'danger', title: `Xác nhận xoá dữ liệu năm ${deleteYear}`, confirmText: 'Đồng ý xoá' }
+    );
+    if (!confirmed) {
       return;
     }
 
@@ -367,13 +373,13 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
       setSaveSuccessMsg('Đã lưu toàn bộ cài đặt thành công!');
       setTimeout(() => setSaveSuccessMsg(''), 3000);
     } catch (err) {
-      alert('Lỗi lưu cài đặt: ' + err.message);
+      showAlert('Lỗi lưu cài đặt: ' + err.message, { variant: 'danger' });
     }
   };
 
   const handleTestConnection = async () => {
     if (!supabaseUrl || !supabaseKey) {
-      alert('Vui lòng nhập Supabase Project URL và Anon Key!');
+      showAlert('Vui lòng nhập Supabase Project URL và Anon Key!', { variant: 'warning' });
       return;
     }
     setIsTesting(true);
@@ -392,8 +398,12 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
     }
   };
 
-  const handleDisconnectSupabase = () => {
-    if (confirm('Ngắt kết nối Supabase và chuyển về chế độ lưu trữ cục bộ (Local)?')) {
+  const handleDisconnectSupabase = async () => {
+    const confirmed = await showConfirm(
+      'Ngắt kết nối Supabase và chuyển về chế độ lưu trữ cục bộ (Local)?',
+      { variant: 'warning', title: 'Ngắt kết nối Supabase', confirmText: 'Đồng ý ngắt' }
+    );
+    if (confirmed) {
       clearSupabaseCredentials();
       setSupabaseUrl('');
       setSupabaseKey('');
@@ -403,23 +413,31 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
   };
 
   const handleSeedData = async () => {
-    if (!confirm('Khởi tạo dữ liệu mẫu (Tables, Menu, Staff, Settings) lên cơ sở dữ liệu Supabase?')) {
+    const confirmed = await showConfirm(
+      'Khởi tạo dữ liệu mẫu (Tables, Menu, Staff, Settings) lên cơ sở dữ liệu Supabase?',
+      { variant: 'warning', title: 'Khởi tạo dữ liệu mẫu', confirmText: 'Đồng ý' }
+    );
+    if (!confirmed) {
       return;
     }
     setIsSeeding(true);
     try {
       await seedInitialDataToSupabase();
-      alert('Đã khởi tạo dữ liệu lên Supabase thành công!');
+      await showAlert('Đã khởi tạo dữ liệu lên Supabase thành công!', { variant: 'success' });
       window.location.reload();
     } catch (err) {
-      alert('Lỗi khởi tạo Supabase: ' + err.message);
+      showAlert('Lỗi khởi tạo Supabase: ' + err.message, { variant: 'danger' });
     } finally {
       setIsSeeding(false);
     }
   };
 
-  const handleResetLocal = () => {
-    if (confirm('Khôi phục toàn bộ dữ liệu mẫu ban đầu của Bánh Cuốn Thanh Hóa?')) {
+  const handleResetLocal = async () => {
+    const confirmed = await showConfirm(
+      'Khôi phục toàn bộ dữ liệu mẫu ban đầu của Bánh Cuốn Thanh Hóa?',
+      { variant: 'warning', title: 'Khôi phục dữ liệu mẫu', confirmText: 'Đồng ý' }
+    );
+    if (confirmed) {
       resetLocalData();
       window.location.reload();
     }
@@ -430,7 +448,7 @@ export default function SettingsView({ onTestPrintBill, onTestPrintKOT }) {
   // - Không có Supabase: gọi thẳng Print Server cục bộ (chỉ đúng khi mở app trên máy tính tiền)
   const handleTestPrinter = async () => {
     if (!printConfig.printer_ip) {
-      alert('Vui lòng nhập địa chỉ IP máy in!');
+      showAlert('Vui lòng nhập địa chỉ IP máy in!', { variant: 'warning' });
       return;
     }
     const ip = printConfig.printer_ip;

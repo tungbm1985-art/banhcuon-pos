@@ -16,6 +16,7 @@ import {
 import { formatVND, formatDate } from '../../utils/formatters';
 import Modal from '../common/Modal';
 import FinanceReport from './FinanceReport';
+import { useDialog } from '../../contexts/DialogContext';
 import {
   Plus,
   Trash2,
@@ -240,6 +241,7 @@ function CategoryPicker({ label, categories, value, onChange, onQuickAdd, placeh
 }
 
 export default function FinanceManager() {
+  const { showAlert, showConfirm } = useDialog();
   const [subTab, setSubTab] = useState('transactions');
 
   const [wallets, setWallets] = useState([]);
@@ -344,11 +346,11 @@ export default function FinanceManager() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formAmount || Number(formAmount) <= 0) {
-      alert('Vui lòng nhập số tiền hợp lệ!');
+      showAlert('Vui lòng nhập số tiền hợp lệ!', { variant: 'warning' });
       return;
     }
     if (!formWallet) {
-      alert('Vui lòng chọn ví!');
+      showAlert('Vui lòng chọn ví!', { variant: 'warning' });
       return;
     }
 
@@ -370,19 +372,24 @@ export default function FinanceManager() {
       setIsModalOpen(false);
       await loadTransactions();
     } catch (err) {
-      alert('Lỗi lưu giao dịch: ' + err.message);
+      showAlert('Lỗi lưu giao dịch: ' + err.message, { variant: 'danger' });
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleDeleteTx = async (tx) => {
-    if (confirm(`Xóa giao dịch ${formatVND(tx.amount)} này?`)) {
+    const confirmed = await showConfirm(`Xóa giao dịch ${formatVND(tx.amount)} này?`, {
+      variant: 'danger',
+      title: 'Xoá giao dịch',
+      confirmText: 'Đồng ý xoá',
+    });
+    if (confirmed) {
       try {
         await deleteTransaction(tx.id);
         await loadTransactions();
       } catch (err) {
-        alert('Lỗi xóa giao dịch: ' + err.message);
+        showAlert('Lỗi xóa giao dịch: ' + err.message, { variant: 'danger' });
       }
     }
   };
@@ -397,7 +404,12 @@ export default function FinanceManager() {
     await loadRefData();
   };
   const handleDeleteWallet = async (item) => {
-    if (confirm(`Xóa ví "${item.name}"?`)) {
+    const confirmed = await showConfirm(`Xóa ví "${item.name}"?`, {
+      variant: 'danger',
+      title: 'Xoá ví',
+      confirmText: 'Đồng ý xoá',
+    });
+    if (confirmed) {
       await deleteWallet(item.id);
       await loadRefData();
     }
@@ -418,11 +430,11 @@ export default function FinanceManager() {
     await loadRefData();
   };
   const handleDeleteCategory = async (item) => {
-    if (
-      confirm(
-        `Xóa khoản mục "${item.name}"?\nCác giao dịch cũ vẫn được giữ lại nhưng sẽ không còn khoản mục.`
-      )
-    ) {
+    const confirmed = await showConfirm(
+      `Xóa khoản mục "${item.name}"?\nCác giao dịch cũ vẫn được giữ lại nhưng sẽ không còn khoản mục.`,
+      { variant: 'danger', title: 'Xoá khoản mục', confirmText: 'Đồng ý xoá' }
+    );
+    if (confirmed) {
       await deleteFinanceCategory(item.id);
       await loadRefData();
       await loadTransactions();

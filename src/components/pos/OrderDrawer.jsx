@@ -7,6 +7,7 @@ import {
   DEFAULT_KITCHEN_STATION,
   getDefaultKitchenStation,
 } from '../../utils/kitchenStations';
+import { useDialog } from '../../contexts/DialogContext';
 import {
   Trash2,
   Plus,
@@ -65,6 +66,7 @@ export default function OrderDrawer({
   onCancelOrder,
   canCancel = true,
 }) {
+  const { showAlert, showConfirm } = useDialog();
   const [cartItems, setCartItems] = useState([]);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [orderNotes, setOrderNotes] = useState('');
@@ -195,7 +197,7 @@ export default function OrderDrawer({
 
   const handleSaveAndSync = async () => {
     if (cartItems.length === 0) {
-      alert('Vui lòng chọn ít nhất 1 món để tạo đơn!');
+      showAlert('Vui lòng chọn ít nhất 1 món để tạo đơn!', { variant: 'warning' });
       return null;
     }
     const orderData = {
@@ -603,8 +605,13 @@ export default function OrderDrawer({
             <div className="text-center pt-1">
               <button
                 type="button"
-                onClick={() => {
-                  if (confirm(`Bạn có chắc muốn hủy đơn hàng ${table.name}?`)) {
+                onClick={async () => {
+                  const confirmed = await showConfirm(`Bạn có chắc muốn hủy đơn hàng ${table.name}?`, {
+                    variant: 'danger',
+                    title: 'Huỷ đơn hàng',
+                    confirmText: 'Đồng ý huỷ',
+                  });
+                  if (confirmed) {
                     onCancelOrder(activeOrder.id);
                   }
                 }}

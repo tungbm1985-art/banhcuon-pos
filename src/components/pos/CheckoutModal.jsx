@@ -3,6 +3,7 @@ import Modal from '../common/Modal';
 import Numpad from '../common/Numpad';
 import { formatVND, getVietQRUrl } from '../../utils/formatters';
 import { Banknote, QrCode, CheckCircle2, Copy, Check, Printer } from 'lucide-react';
+import { useDialog } from '../../contexts/DialogContext';
 
 export default function CheckoutModal({
   isOpen,
@@ -12,6 +13,7 @@ export default function CheckoutModal({
   onCompleteCheckout,
   onPrintBill,
 }) {
+  const { showAlert } = useDialog();
   const [paymentMethod, setPaymentMethod] = useState('vietqr'); // 'cash' | 'vietqr'
   const [cashReceived, setCashReceived] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -63,7 +65,7 @@ export default function CheckoutModal({
 
   const handleFinish = async () => {
     if (paymentMethod === 'cash' && cashReceived < finalAmount) {
-      alert('Số tiền khách đưa chưa đủ để thanh toán!');
+      showAlert('Số tiền khách đưa chưa đủ để thanh toán!', { variant: 'warning' });
       return;
     }
 
@@ -79,7 +81,7 @@ export default function CheckoutModal({
       onClose();
     } catch (err) {
       console.error('Error completing checkout:', err);
-      alert('Lỗi khi thanh toán: ' + err.message);
+      showAlert('Lỗi khi thanh toán: ' + err.message, { variant: 'danger' });
     } finally {
       setIsSubmitting(false);
     }

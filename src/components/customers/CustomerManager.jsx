@@ -4,8 +4,10 @@ import { formatVND, formatDateTime } from '../../utils/formatters';
 import { exportDataFiles } from '../../utils/exportData';
 import { Search, UserPlus, Star, Phone, History, CreditCard, Edit, Check, FileSpreadsheet } from 'lucide-react';
 import Modal from '../common/Modal';
+import { useDialog } from '../../contexts/DialogContext';
 
 export default function CustomerManager({ loyaltyConfig }) {
+  const { showAlert } = useDialog();
   const [customers, setCustomers] = useState([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -60,7 +62,7 @@ export default function CustomerManager({ loyaltyConfig }) {
       await loadData();
       handleSelectCustomer(created);
     } catch (err) {
-      alert('Lỗi tạo khách hàng: ' + err.message);
+      showAlert('Lỗi tạo khách hàng: ' + err.message, { variant: 'danger' });
     }
   };
 

@@ -2,8 +2,10 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { getCustomers, createCustomer, normalizeSearchText } from '../../services/db';
 import { Search, UserPlus, Star, X } from 'lucide-react';
 import { formatVND } from '../../utils/formatters';
+import { useDialog } from '../../contexts/DialogContext';
 
 export default function CustomerLookup({ selectedCustomer, onSelectCustomer, loyaltyConfig }) {
+  const { showAlert } = useDialog();
   const [query, setQuery] = useState('');
   const [customers, setCustomers] = useState([]);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -72,7 +74,7 @@ export default function CustomerLookup({ selectedCustomer, onSelectCustomer, loy
       setQuery('');
     } catch (err) {
       console.error('Error creating customer:', err);
-      alert('Lỗi tạo khách hàng: ' + err.message);
+      showAlert('Lỗi tạo khách hàng: ' + err.message, { variant: 'danger' });
     } finally {
       setCreating(false);
     }

@@ -4,6 +4,7 @@ import { formatVND } from '../../utils/formatters';
 import { getDefaultKitchenStation } from '../../utils/kitchenStations';
 import { Plus, Edit2, Trash2, Search } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useDialog } from '../../contexts/DialogContext';
 
 export default function MenuManager({
   menuItems = [],
@@ -12,6 +13,7 @@ export default function MenuManager({
   onDeleteMenuItem,
 }) {
   const { isManager } = useAuth();
+  const { showConfirm } = useDialog();
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [editingItem, setEditingItem] = useState(null);
@@ -54,8 +56,13 @@ export default function MenuManager({
     setIsFormOpen(true);
   };
 
-  const handleDelete = (item) => {
-    if (confirm(`Bạn có chắc muốn xóa món "${item.name}" khỏi thực đơn?`)) {
+  const handleDelete = async (item) => {
+    const confirmed = await showConfirm(`Bạn có chắc muốn xóa món "${item.name}" khỏi thực đơn?`, {
+      variant: 'danger',
+      title: 'Xoá món khỏi thực đơn',
+      confirmText: 'Đồng ý xoá',
+    });
+    if (confirmed) {
       onDeleteMenuItem(item.id);
     }
   };

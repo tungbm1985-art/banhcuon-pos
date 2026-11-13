@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { formatVND } from '../../utils/formatters';
 import { Plus, Edit2, Trash2, Grid2X2, AlertTriangle } from 'lucide-react';
 import Modal from '../common/Modal';
+import { useDialog } from '../../contexts/DialogContext';
 
 export default function TableManager({
   tables = [],
@@ -9,6 +10,7 @@ export default function TableManager({
   onUpdateTable,
   onDeleteTable,
 }) {
+  const { showAlert, showConfirm } = useDialog();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTable, setEditingTable] = useState(null);
 
@@ -65,7 +67,7 @@ export default function TableManager({
       }
       setIsModalOpen(false);
     } catch (err) {
-      alert('Lỗi lưu bàn: ' + err.message);
+      showAlert('Lỗi lưu bàn: ' + err.message, { variant: 'danger' });
     } finally {
       setIsSubmitting(false);
     }
@@ -73,15 +75,22 @@ export default function TableManager({
 
   const handleDelete = async (t) => {
     if (t.status === 'occupied') {
-      alert('Không thể xóa bàn đang có khách ngồi hoặc đơn hàng chưa hoàn tất!');
+      showAlert('Không thể xóa bàn đang có khách ngồi hoặc đơn hàng chưa hoàn tất!', {
+        variant: 'warning',
+      });
       return;
     }
 
-    if (confirm(`Bạn có chắc muốn xóa bàn "${t.name}"?`)) {
+    const confirmed = await showConfirm(`Bạn có chắc muốn xóa bàn "${t.name}"?`, {
+      variant: 'danger',
+      title: 'Xoá bàn',
+      confirmText: 'Đồng ý xoá',
+    });
+    if (confirmed) {
       try {
         await onDeleteTable(t.id);
       } catch (err) {
-        alert(err.message);
+        showAlert(err.message, { variant: 'danger' });
       }
     }
   };

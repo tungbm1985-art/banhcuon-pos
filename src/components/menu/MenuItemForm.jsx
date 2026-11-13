@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import Modal from '../common/Modal';
+import { useDialog } from '../../contexts/DialogContext';
 import {
   DEFAULT_KITCHEN_STATION,
   getDefaultKitchenStation,
@@ -20,6 +21,7 @@ export default function MenuItemForm({
   const [isAvailable, setIsAvailable] = useState(true);
   const [customCategory, setCustomCategory] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { showAlert } = useDialog();
 
   useEffect(() => {
     if (initialData) {
@@ -61,7 +63,7 @@ export default function MenuItemForm({
       });
       onClose();
     } catch (err) {
-      alert('Lỗi khi lưu món: ' + err.message);
+      showAlert('Lỗi khi lưu món: ' + err.message, { variant: 'danger' });
     } finally {
       setIsSubmitting(false);
     }

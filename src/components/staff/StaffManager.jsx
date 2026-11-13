@@ -2,8 +2,10 @@ import { useState, useEffect } from 'react';
 import { getStaffList, createStaff, updateStaff, deleteStaff } from '../../services/db';
 import { UserPlus, Shield, UserCog, Trash2, Edit2, Key, CheckCircle, ShieldAlert } from 'lucide-react';
 import Modal from '../common/Modal';
+import { useDialog } from '../../contexts/DialogContext';
 
 export default function StaffManager() {
+  const { showAlert, showConfirm } = useDialog();
   const [staff, setStaff] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -55,7 +57,7 @@ export default function StaffManager() {
     if (!fullName.trim() || !username.trim()) return;
 
     if (!editingStaff && !password.trim()) {
-      alert('Vui lòng nhập mật khẩu cho nhân viên mới!');
+      showAlert('Vui lòng nhập mật khẩu cho nhân viên mới!', { variant: 'warning' });
       return;
     }
 
@@ -81,7 +83,7 @@ export default function StaffManager() {
       setIsModalOpen(false);
       await loadData();
     } catch (err) {
-      alert('Lỗi: ' + err.message);
+      showAlert('Lỗi: ' + err.message, { variant: 'danger' });
     } finally {
       setIsSubmitting(false);
     }
@@ -89,16 +91,21 @@ export default function StaffManager() {
 
   const handleDelete = async (s) => {
     if (s.username === 'admin') {
-      alert('Không thể xóa tài khoản Quản trị viên cấp cao (Admin)!');
+      showAlert('Không thể xóa tài khoản Quản trị viên cấp cao (Admin)!', { variant: 'warning' });
       return;
     }
 
-    if (confirm(`Bạn có chắc muốn xóa nhân viên "${s.full_name}"?`)) {
+    const confirmed = await showConfirm(`Bạn có chắc muốn xóa nhân viên "${s.full_name}"?`, {
+      variant: 'danger',
+      title: 'Xoá nhân viên',
+      confirmText: 'Đồng ý xoá',
+    });
+    if (confirmed) {
       try {
         await deleteStaff(s.id);
         await loadData();
       } catch (err) {
-        alert(err.message);
+        showAlert(err.message, { variant: 'danger' });
       }
     }
   };

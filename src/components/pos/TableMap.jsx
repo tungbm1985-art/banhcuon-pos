@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { formatVND } from '../../utils/formatters';
 import { ShoppingBag, Users, Clock, Plus, UtensilsCrossed, CheckCircle2, Trash2 } from 'lucide-react';
+import { useDialog } from '../../contexts/DialogContext';
 
 export default function TableMap({
   tables = [],
@@ -9,6 +10,7 @@ export default function TableMap({
   onQuickAddTakeaway,
   onDeleteTable,
 }) {
+  const { showConfirm } = useDialog();
   const [filterType, setFilterType] = useState('all'); // 'all' | 'dine_in' | 'takeaway'
   const [selectedZone, setSelectedZone] = useState('all');
 
@@ -149,9 +151,14 @@ export default function TableMap({
                         <span
                           role="button"
                           tabIndex={0}
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.stopPropagation();
-                            if (confirm(`Xóa ô mang về "${t.name}"?`)) {
+                            const confirmed = await showConfirm(`Xóa ô mang về "${t.name}"?`, {
+                              variant: 'danger',
+                              title: 'Xoá ô mang về',
+                              confirmText: 'Đồng ý xoá',
+                            });
+                            if (confirmed) {
                               onDeleteTable(t.id);
                             }
                           }}

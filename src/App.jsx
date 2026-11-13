@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
+import { DialogProvider, useDialog } from './contexts/DialogContext';
 import Header from './components/common/Header';
 import Navigation from './components/common/Navigation';
 import TableMap from './components/pos/TableMap';
@@ -47,6 +48,7 @@ import {
 function MainApp() {
   const { currentUser, isManager, isAdmin } = useAuth();
   const { settings } = useSettings();
+  const { showAlert } = useDialog();
 
   const [activeTab, setActiveTab] = useState('pos');
   const [tables, setTables] = useState([]);
@@ -141,7 +143,7 @@ function MainApp() {
       setActiveOrderForDrawer(savedOrder);
       return savedOrder;
     } catch (err) {
-      alert('Lỗi lưu đơn hàng: ' + err.message);
+      showAlert('Lỗi lưu đơn hàng: ' + err.message, { variant: 'danger' });
       return null;
     }
   };
@@ -184,7 +186,7 @@ function MainApp() {
         });
         const data = await res.json();
         if (!data.success) {
-          alert('Lỗi in LAN: ' + (data.error || 'Không xác định'));
+          showAlert('Lỗi in LAN: ' + (data.error || 'Không xác định'), { variant: 'danger' });
         }
       } else if (type === 'kot') {
         const tickets = order.kitchenTickets || [];
@@ -204,7 +206,9 @@ function MainApp() {
         }
       }
     } catch {
-      alert('Không kết nối được máy in LAN. Đã chuyển về in qua trình duyệt.');
+      showAlert('Không kết nối được máy in LAN. Đã chuyển về in qua trình duyệt.', {
+        variant: 'warning',
+      });
       await doPrint(html);
     }
   };
@@ -353,7 +357,7 @@ function MainApp() {
       await loadData();
       return true;
     } catch (err) {
-      alert('Lỗi hủy đơn: ' + err.message);
+      showAlert('Lỗi hủy đơn: ' + err.message, { variant: 'danger' });
       throw err;
     }
   };
@@ -365,7 +369,7 @@ function MainApp() {
       const updated = await getMenuItems();
       setMenuItems(updated);
     } catch (err) {
-      alert('Lỗi cập nhật món: ' + err.message);
+      showAlert('Lỗi cập nhật món: ' + err.message, { variant: 'danger' });
     }
   };
 
@@ -428,7 +432,7 @@ function MainApp() {
       // Automatically open drawer for order entry
       handleSelectTable(newTable, null);
     } catch (err) {
-      alert('Lỗi tạo đơn mang về: ' + err.message);
+      showAlert('Lỗi tạo đơn mang về: ' + err.message, { variant: 'danger' });
     }
   };
 
@@ -583,9 +587,13 @@ function MainApp() {
     if (!html) return 'error';
     const status = await printHtmlInFrame(html);
     if (status === 'not-installed') {
-      alert('Thiết bị chưa cài đặt máy in. Vui lòng cài đặt máy in trước khi in.');
+      showAlert('Thiết bị chưa cài đặt máy in. Vui lòng cài đặt máy in trước khi in.', {
+        variant: 'warning',
+      });
     } else if (status === 'not-found') {
-      alert('Không tìm thấy máy in. Vui lòng kiểm tra kết nối máy in và thử lại.');
+      showAlert('Không tìm thấy máy in. Vui lòng kiểm tra kết nối máy in và thử lại.', {
+        variant: 'warning',
+      });
     }
     // 'printed' → no alert, keep current behavior
     return status;
@@ -791,7 +799,9 @@ export default function App() {
   return (
     <AuthProvider>
       <SettingsProvider>
-        <MainApp />
+        <DialogProvider>
+          <MainApp />
+        </DialogProvider>
       </SettingsProvider>
     </AuthProvider>
   );

@@ -4,6 +4,7 @@ import { formatVND, formatDate } from '../../utils/formatters';
 import { getDateRangeForPreset, exportDataFiles } from '../../utils/exportData';
 import { Plus, Trash2, Edit2, Receipt, FileSpreadsheet } from 'lucide-react';
 import Modal from '../common/Modal';
+import { useDialog } from '../../contexts/DialogContext';
 
 const CATEGORIES = [
   'Nguyên liệu tươi',
@@ -21,6 +22,7 @@ const RANGE_PRESETS = [
 ];
 
 export default function ExpenseManager() {
+  const { showAlert, showConfirm } = useDialog();
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState('Tất cả');
@@ -81,7 +83,7 @@ export default function ExpenseManager() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!amount || Number(amount) <= 0) {
-      alert('Vui lòng nhập số tiền chi phí hợp lệ!');
+      showAlert('Vui lòng nhập số tiền chi phí hợp lệ!', { variant: 'warning' });
       return;
     }
 
@@ -105,19 +107,23 @@ export default function ExpenseManager() {
       setIsModalOpen(false);
       await loadData();
     } catch (err) {
-      alert('Lỗi lưu chi phí: ' + err.message);
+      showAlert('Lỗi lưu chi phí: ' + err.message, { variant: 'danger' });
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleDelete = async (exp) => {
-    if (confirm(`Bạn có chắc muốn xóa chi phí ${formatVND(exp.amount)} (${exp.category})?`)) {
+    const confirmed = await showConfirm(
+      `Bạn có chắc muốn xóa chi phí ${formatVND(exp.amount)} (${exp.category})?`,
+      { variant: 'danger', title: 'Xoá chi phí', confirmText: 'Đồng ý xoá' }
+    );
+    if (confirmed) {
       try {
         await deleteExpense(exp.id);
         await loadData();
       } catch (err) {
-        alert('Lỗi xóa chi phí: ' + err.message);
+        showAlert('Lỗi xóa chi phí: ' + err.message, { variant: 'danger' });
       }
     }
   };
